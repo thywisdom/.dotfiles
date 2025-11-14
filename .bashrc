@@ -20,6 +20,8 @@ alias pymind='cd /media/VAULT/workspace/Python && nvim .'
 
 #obsidian sync
 alias obsync="~/obsync.sh"
+
+alias lg="lazygit"
 #
 # Use VSCode instead of neovim as your default editor
 # export EDITOR="code"
