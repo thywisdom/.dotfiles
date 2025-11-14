@@ -1,0 +1,61 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "autosave": {
+    "after_delay": {
+      "milliseconds": 500
+    }
+  },
+  "edit_predictions": {
+    "mode": "subtle"
+  },
+  "show_edit_predictions": false,
+  "languages": {
+    "Java": {
+      "show_edit_predictions": false
+    }
+  },
+  "agent": {
+    "default_profile": "write"
+  },
+  "context_servers": {
+        "shadcn": {
+            "source": "custom",
+            "enabled": true,
+            "command": "npx",
+            "args": [
+                "shadcn@latest",
+                "mcp"
+            ]
+        },
+        "instant": {
+            "source": "custom",
+            "enabled": true,
+            "command": "npx",
+            "args": [
+                "-y",
+                "@instantdb/mcp",
+                "--token",
+                "per_3693d577838ab2eab4a91497a2620f9eebe09283a80310ea5cbc4baf60895ed4"
+            ]
+        }
+    },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "base_keymap": "Cursor",
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "system",
+    "light": "Gruvbox Light",
+    "dark": "Catppuccin Espresso (Blur) [Light]"
+  }
+}
