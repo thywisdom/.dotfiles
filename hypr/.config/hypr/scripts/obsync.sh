@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Set the Vault Directory
+VAULT_DIR="$HOME/Documents/Knowledge-base"
+
+cd "$VAULT_DIR" || { notify-send -a "Obsidian Sync" -u critical "Sync Error" "Vault directory not found!"; exit 1; }
+
+# Notify user of sync start
+notify-send -a "Obsidian Sync" -u low "Syncing..." "Checking for changes..." -t 2000
+
+# 1. Stage all changes
+git add .
+
+# 2. Commit if there are any current local changes
+if git diff-index --quiet HEAD --; then
+    LOCAL_COMMITTED=false
+else
+    git commit -m "Auto-sync: $(date +'%Y-%m-%d %H:%M:%S')"
+    LOCAL_COMMITTED=true
+fi
+
+# 3. Fetch remote safely
+git fetch origin main || { notify-send -a "Obsidian Sync" -u critical "Network Error" "Failed to connect to remote."; exit 1; }
+
+LOCAL=$(git rev-parse @ 2>/dev/null)
+REMOTE=$(git rev-parse origin/main 2>/dev/null)
+BASE=$(git merge-base @ "$REMOTE" 2>/dev/null || echo "0")
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+    if [ "$LOCAL_COMMITTED" = true ]; then
+        # This shouldn't usually happen unless pushing isn't needed but commit changed head
+        git push origin main
+        notify-send -a "Obsidian Sync" -u normal "Sync Complete" "Pushed new changes to remote."
+    else
+        notify-send -a "Obsidian Sync" -u low "Sync Complete" "Already up to date. No changes."
+    fi
+elif [ "$LOCAL" = "$BASE" ]; then
+    # Need to pull
+    git pull --rebase origin main && \
+        notify-send -a "Obsidian Sync" -u normal "Sync Complete" "Pulled new changes from remote." || \
+        notify-send -a "Obsidian Sync" -u critical "Sync Error" "Failed to pull updates from remote!"
+elif [ "$REMOTE" = "$BASE" ]; then
+    # Need to push
+    git push origin main && \
+        notify-send -a "Obsidian Sync" -u normal "Sync Complete" "Pushed local updates to remote." || \
+        notify-send -a "Obsidian Sync" -u critical "Sync Error" "Failed to push updates."
+else
+    # Diverged, pull then push
+    if git pull --rebase origin main; then
+        git push origin main && \
+            notify-send -a "Obsidian Sync" -u normal "Sync Complete" "Synchronized (pulled and pushed) changes." || \
+            notify-send -a "Obsidian Sync" -u critical "Sync Error" "Failed to push updates after pulling."
+    else
+        notify-send -a "Obsidian Sync" -u critical "Sync Error" "Merge conflict detected! Manual intervention required."
+    fi
+fi
