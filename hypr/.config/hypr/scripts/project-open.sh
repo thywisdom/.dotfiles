@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Project Opener — walker dmenu-based project selector + IDE picker
-# Shows folders in ~/Projects, then lists installed IDEs to open with.
+# project-open.sh — Walker dmenu project selector + IDE picker
+# Shows folders in ~/Projects, then lets you pick an installed IDE.
 
 set -euo pipefail
 
@@ -8,8 +8,8 @@ PROJECTS_DIR="$HOME/Projects"
 TERMINAL="foot"
 
 # ============= IDE REGISTRY =============
-# Format: "display-name|check-binary|launch-command-template"
-# Use {path} as placeholder for the project path
+# Format: display-name → check-binary → launch-command-template
+# Use {path} as a placeholder for the project path.
 declare -A IDE_BINS=(
   ["VSCode"]="code"
   ["Antigravity"]="antigravity-ide"
@@ -87,7 +87,6 @@ selected_ide="$(printf '%s' "$ide_list" | \
 cmd_template="${IDE_CMDS[$selected_ide]}"
 
 # Safe substitution: replace {path} literally — no eval
-# Split template into array, substitute {path} in each token
 read -ra cmd_parts <<< "$cmd_template"
 for i in "${!cmd_parts[@]}"; do
   cmd_parts[$i]="${cmd_parts[$i]//\{path\}/$project_path}"

@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
+# unified_menu.sh — Walker dmenu for quick-access scripts
 
-# Unified menu script using Walker
+SCRIPTS_DIR="${HOME}/.config/hypr/scripts"
 
-scripts_dir="/home/suman/.config/hypr/scripts"
-
-# Define the options
-options="Nightlight\nObsidian Sync\nProject Open"
-
-# Show menu using walker in dmenu mode
-choice=$(echo -e "$options" | uwsm app -- walker --dmenu)
+choice=$(printf 'Nightlight\nObsidian Sync\nProject Open\n' | uwsm app -- walker --dmenu)
 
 case "$choice" in
-    "Nightlight")
-        exec "$scripts_dir/nightlight.sh"
-        ;;
-    "Obsidian Sync")
-        exec "$scripts_dir/obsync.sh"
-        ;;
-    "Project Open")
-        exec "$scripts_dir/project-open.sh"
-        ;;
+  "Nightlight")
+    exec "$SCRIPTS_DIR/nightlight.sh"
+    ;;
+  "Obsidian Sync")
+    exec "$SCRIPTS_DIR/obsync.sh"
+    ;;
+  "Project Open")
+    exec "$SCRIPTS_DIR/project-open.sh"
+    ;;
 esac
