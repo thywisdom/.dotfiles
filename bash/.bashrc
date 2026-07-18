@@ -33,8 +33,8 @@ export PATH="$PATH:$HOME/.dotnet/tools"
 export PATH="$PATH:/home/suman/.lmstudio/bin"  # LM Studio CLI
 
 # Java (managed by mise)
-export JAVA_HOME="$HOME/.local/share/mise/installs/java/26.0.1"
-export PATH="$JAVA_HOME/bin:$PATH"
+#export JAVA_HOME="$HOME/.local/share/mise/installs/java/26.0.1"
+#export PATH="$JAVA_HOME/bin:$PATH"
 
 # Go (uncomment if needed)
 # export PATH="$PATH:$(go env GOPATH)/bin"
