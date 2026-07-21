@@ -3,7 +3,7 @@
 
 SCRIPTS_DIR="${HOME}/.config/hypr/scripts"
 
-choice=$(printf 'Nightlight\nObsidian Sync\nProject Open\n' | uwsm app -- walker --dmenu)
+choice=$(printf 'Nightlight\nObsidian Sync\nProject Open\nKeyboard RGB\n' | uwsm app -- walker --dmenu)
 
 case "$choice" in
   "Nightlight")
@@ -14,5 +14,8 @@ case "$choice" in
     ;;
   "Project Open")
     exec "$SCRIPTS_DIR/project-open.sh"
+    ;;
+  "Keyboard RGB")
+    exec "$SCRIPTS_DIR/keyboard-rgb.sh"
     ;;
 esac
