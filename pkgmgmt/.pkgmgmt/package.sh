@@ -381,6 +381,26 @@ cmd_add_ignore_tui() {
 }
 
 # ---------------------------------------------------------------------------
+# Show ignored packages
+# ---------------------------------------------------------------------------
+cmd_show_ignore() {
+    header "Ignored Packages"
+
+    if [[ -f "$IGNORE_CONF_SOURCE" ]]; then
+        local content
+        content="$(grep -vE '^\s*($|#)' "$IGNORE_CONF_SOURCE" || true)"
+        if [[ -n "$content" ]]; then
+            info "Ignored packages configuration ($IGNORE_CONF_SOURCE):"
+            echo "$content" | sed 's/^/    /'
+        else
+            warn "No ignored packages configured in $IGNORE_CONF_SOURCE"
+        fi
+    else
+        warn "Source file not found: $IGNORE_CONF_SOURCE"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Menu
 # ---------------------------------------------------------------------------
 show_menu() {
@@ -395,9 +415,10 @@ show_menu() {
     echo "  5. Verify configuration"
     echo "  6. Repair configuration"
     echo "  7. Add packages to IgnorePkg (TUI)"
-    echo "  8. Exit"
+    echo "  8. Show ignored packages"
+    echo "  9. Exit"
     echo
-    echo -n "Choose [1-8]: "
+    echo -n "Choose [1-9]: "
 }
 
 # ---------------------------------------------------------------------------
@@ -414,7 +435,8 @@ main() {
             verify)         cmd_verify ;;
             repair)         cmd_repair ;;
             add-ignore)     cmd_add_ignore_tui ;;
-            *) die "Unknown command: $1\nUsage: $0 [install-pacman|install-aur|install-all|configure|verify|repair|add-ignore]" ;;
+            show-ignore)    cmd_show_ignore ;;
+            *) die "Unknown command: $1\nUsage: $0 [install-pacman|install-aur|install-all|configure|verify|repair|add-ignore|show-ignore]" ;;
         esac
         exit 0
     fi
@@ -432,8 +454,9 @@ main() {
             5) cmd_verify ;;
             6) cmd_repair ;;
             7) cmd_add_ignore_tui ;;
-            8) echo -e "\n${CYAN}Goodbye.${RESET}\n"; exit 0 ;;
-            *) warn "Invalid choice. Enter a number from 1 to 8." ;;
+            8) cmd_show_ignore ;;
+            9) echo -e "\n${CYAN}Goodbye.${RESET}\n"; exit 0 ;;
+            *) warn "Invalid choice. Enter a number from 1 to 9." ;;
         esac
 
         echo
