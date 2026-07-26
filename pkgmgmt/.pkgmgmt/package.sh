@@ -242,7 +242,16 @@ cmd_repair() {
 }
 
 # ---------------------------------------------------------------------------
-# Install pacman packages
+# Resolve AUR helper (paru preferred, yay fallback)
+# ---------------------------------------------------------------------------
+_aur_helper() {
+    if command -v paru &>/dev/null; then echo "paru"
+    elif command -v yay &>/dev/null; then echo "yay"
+    else echo ""; fi
+}
+
+# ---------------------------------------------------------------------------
+# Install pacman packages (with auto-AUR fallback per package)
 # ---------------------------------------------------------------------------
 cmd_install_pacman() {
     header "Installing Official Packages"
@@ -257,13 +266,49 @@ cmd_install_pacman() {
         return
     fi
 
-    info "Packages to install:"
-    echo "$pkgs" | sed 's/^/    /'
+    # ── Sort packages: official vs needs-AUR-fallback ──────────────────────
+    local official_pkgs=()
+    local fallback_pkgs=()
+
+    while IFS= read -r pkg; do
+        [[ -z "$pkg" ]] && continue
+        if pacman -Si "$pkg" &>/dev/null; then
+            official_pkgs+=("$pkg")
+        else
+            warn "'$pkg' not found in pacman repos — will try AUR helper"
+            fallback_pkgs+=("$pkg")
+        fi
+    done <<< "$pkgs"
+
+    # ── Install official packages ───────────────────────────────────────────
+    if [[ ${#official_pkgs[@]} -gt 0 ]]; then
+        info "Official packages to install:"
+        printf '    %s\n' "${official_pkgs[@]}"
+        echo
+        sudo pacman -S --needed "${official_pkgs[@]}"
+        success "Official packages done."
+    fi
+
+    # ── Fallback: install via AUR helper ───────────────────────────────────
+    if [[ ${#fallback_pkgs[@]} -gt 0 ]]; then
+        local aur_helper
+        aur_helper="$(_aur_helper)"
+        if [[ -z "$aur_helper" ]]; then
+            error "No AUR helper (paru/yay) found — cannot install: ${fallback_pkgs[*]}"
+            error "Install paru or yay and re-run."
+        else
+            info "AUR helper ($aur_helper) will install:"
+            printf '    %s\n' "${fallback_pkgs[@]}"
+            echo
+            "$aur_helper" -S --needed "${fallback_pkgs[@]}"
+            success "AUR fallback packages done."
+        fi
+    fi
+
     echo
-    # shellcheck disable=SC2086
-    sudo pacman -S --needed $pkgs
-    success "Done."
+    success "All pacman packages processed."
 }
+
 
 # ---------------------------------------------------------------------------
 # Install AUR packages
@@ -281,15 +326,9 @@ cmd_install_aur() {
         return
     fi
 
-    # Prefer paru, fall back to yay
-    local aur_helper=""
-    if command -v paru &>/dev/null; then
-        aur_helper="paru"
-    elif command -v yay &>/dev/null; then
-        aur_helper="yay"
-    else
-        die "No AUR helper found. Install paru or yay first."
-    fi
+    local aur_helper
+    aur_helper="$(_aur_helper)"
+    [[ -n "$aur_helper" ]] || die "No AUR helper found (paru/yay). Install one first."
 
     info "AUR helper: $aur_helper"
     info "Packages to install:"

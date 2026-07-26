@@ -22,14 +22,14 @@ open_in_terminal() {
   fi
 }
 
-choice=$(printf 'Nightlight\nObsidian Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\n' | uwsm app -- walker --dmenu)
+choice=$(printf 'Nightlight\nVault Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\nBin Permissions\n' | uwsm app -- walker --dmenu)
 
 case "$choice" in
   "Nightlight")
     exec "$SCRIPTS_DIR/nightlight.sh"
     ;;
-  "Obsidian Sync")
-    exec "$SCRIPTS_DIR/obsync.sh"
+  "Vault Sync")
+    exec "${SCRIPTS_DIR}/vault-sync.sh"
     ;;
   "Project Open")
     exec "$SCRIPTS_DIR/project-open.sh"
@@ -42,5 +42,10 @@ case "$choice" in
     ;;
   "Show Ignored Packages")
     open_in_terminal "$PKG_SCRIPT show-ignore; echo; read -n 1 -s -r -p 'Press any key to close...'"
+    ;;
+  "Bin Permissions")
+    # Launch in a terminal with app class "user-script" so Hyprland floats it
+    _term="$(omarchy-default-terminal 2>/dev/null || echo foot)"
+    exec uwsm app -- "$_term" --app-id user-script -e bash -c "${HOME}/.config/hypr/scripts/bin-permissions.sh"
     ;;
 esac

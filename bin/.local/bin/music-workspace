@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# music-workspace — Toggle the special:music scratchpad workspace.
+#
+# App placement into special:music is handled entirely by windowrules,
+# so this script is a pure toggle with no app-launching logic.
+# Bind: SUPER + Menu
+
+hyprctl dispatch togglespecialworkspace music

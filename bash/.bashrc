@@ -66,7 +66,7 @@ alias pymind='cd /media/VAULT/workspace/Python   && nvim .'
 alias dotmind='cd /media/VAULT/workspace/C#/     && nvim .'
 
 # Utilities
-alias obsync="$HOME/.config/hypr/scripts/obsync.sh"
+alias vaultsync="${HOME}/.config/hypr/scripts/vault-sync.sh"
 alias lg="lazygit"
 alias ld="lazydocker"
 alias cls="clear"
