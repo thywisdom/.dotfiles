@@ -3,3 +3,4 @@
 export ELECTRON_OZONE_PLATFORM_HINT=x11
 
 exec /usr/bin/antigravity-ide --ozone-platform=x11 --force-device-scale-factor=1.25 "$@"
+#hi

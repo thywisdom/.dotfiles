@@ -5,4 +5,5 @@
 # so this script is a pure toggle with no app-launching logic.
 # Bind: SUPER + Menu
 
-hyprctl dispatch togglespecialworkspace music
+
+hyprctl eval 'hl.dispatch(hl.dsp.workspace.toggle_special("music"))'

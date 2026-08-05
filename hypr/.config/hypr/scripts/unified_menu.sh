@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# unified_menu.sh — Walker dmenu for quick-access scripts
+# unified_menu.sh — Omarchy quickshell menu for quick-access scripts
 
 SCRIPTS_DIR="${HOME}/.config/hypr/scripts"
 PKG_SCRIPT="${HOME}/.pkgmgmt/package.sh"
@@ -22,7 +22,7 @@ open_in_terminal() {
   fi
 }
 
-choice=$(printf 'Nightlight\nVault Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\nBin Permissions\n' | uwsm app -- walker --dmenu)
+choice=$(printf 'Nightlight\nVault Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\nBin Permissions\n' | omarchy-menu-select "Quick Access Scripts")
 
 case "$choice" in
   "Nightlight")

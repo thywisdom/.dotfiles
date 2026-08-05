@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# keyboard-rgb.sh — Walker launcher plugin for Acer ALG keyboard RGB control
+# keyboard-rgb.sh — Omarchy Quickshell menu for Acer ALG keyboard RGB control
 #
 # FLOW:
 #   Step 1 — Top-level menu:   Toggle On/Off | Set Color | Presets
@@ -211,9 +211,7 @@ step_intensity() {
     "${ICON_BRIGHT} Brightness 3  — Medium" \
     "${ICON_BRIGHT} Brightness 4  — Full" \
     "${ICON_BACK} Back" \
-    | walker --dmenu \
-        --placeholder "${icon} ${human} — pick intensity" \
-        2>/dev/null
+    | omarchy-menu-select "${icon} ${human} — pick intensity" 2>/dev/null \
   ) || true
 
   [[ -z "$chosen" ]] && return 0
@@ -244,9 +242,7 @@ step_color() {
 
   local chosen
   chosen=$(printf '%s\n' "${color_entries[@]}" \
-    | walker --dmenu \
-        --placeholder "${ICON_COLOR} Pick a color…" \
-        2>/dev/null
+    | omarchy-menu-select "${ICON_COLOR} Pick a color…" 2>/dev/null \
   ) || true
 
   [[ -z "$chosen" ]] && return 0
@@ -306,9 +302,7 @@ step_main() {
 
   local chosen
   chosen=$(printf '%s\n' "$menu" \
-    | walker --dmenu \
-        --placeholder "${ICON_TOGGLE} Keyboard RGB" \
-        2>/dev/null
+    | omarchy-menu-select "${ICON_TOGGLE} Keyboard RGB" 2>/dev/null \
   ) || true
 
   [[ -z "$chosen" ]] && return 0

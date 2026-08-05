@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# project-open.sh — Walker dmenu project selector + IDE picker
+# project-open.sh — Omarchy Quickshell menu project selector + IDE picker
 # Shows folders in ~/Projects, then lets you pick an installed IDE.
 
 set -euo pipefail
@@ -12,6 +12,7 @@ TERMINAL="foot"
 # Use {path} as a placeholder for the project path.
 declare -A IDE_BINS=(
   ["VSCode"]="code"
+  ["VSCodium"]="codium"
   ["Antigravity"]="antigravity-ide"
   ["Neovim"]="nvim"
   ["OpenCode"]="opencode"
@@ -21,6 +22,7 @@ declare -A IDE_BINS=(
 
 declare -A IDE_CMDS=(
   ["VSCode"]="uwsm app -- code {path}"
+  ["VSCodium"]="uwsm app -- codium {path}"
   ["Antigravity"]="uwsm app -- antigravity-launch {path}"
   ["Neovim"]="uwsm app -- $TERMINAL --working-directory {path} -e nvim {path}"
   ["OpenCode"]="uwsm app -- $TERMINAL --working-directory {path} -e opencode"
@@ -31,7 +33,7 @@ declare -A IDE_CMDS=(
 # ============= ENSURE PROJECTS DIR =============
 if [[ ! -d "$PROJECTS_DIR" ]]; then
   choice="$(printf 'Yes, create ~/Projects\nCancel' | \
-    walker --dmenu --placeholder "~/Projects not found — create it?" 2>/dev/null || true)"
+    omarchy-menu-select "~/Projects not found — create it?" 2>/dev/null || true)"
   [[ "$choice" == "Yes, create ~/Projects" ]] || exit 0
   mkdir -p "$PROJECTS_DIR"
   notify-send "Projects" "Created ~/Projects" -t 2000
@@ -49,14 +51,14 @@ mapfile -t projects < <(
 
 if [[ ${#projects[@]} -eq 0 ]]; then
   choice="$(printf 'No projects found\nOpen ~/Projects in Files\nCancel' | \
-    walker --dmenu --placeholder "~/Projects is empty" 2>/dev/null || true)"
+    omarchy-menu-select "~/Projects is empty" 2>/dev/null || true)"
   [[ "$choice" == "Open ~/Projects in Files" ]] && nautilus "$PROJECTS_DIR" &
   exit 0
 fi
 
 project_list="$(printf '%s\n' "${projects[@]}")"
 selected_project="$(printf '%s' "$project_list" | \
-  walker --dmenu --placeholder "Open project..." 2>/dev/null || true)"
+  omarchy-menu-select "Open project..." 2>/dev/null || true)"
 
 [[ -z "$selected_project" ]] && exit 0
 
@@ -67,7 +69,7 @@ fi
 
 # ============= LIST INSTALLED IDEs =============
 installed_ides=()
-for ide in "VSCode" "Antigravity" "Neovim" "OpenCode" "Zed" "ClaudeCode"; do
+for ide in "VSCode" "VSCodium" "Antigravity" "Neovim" "OpenCode" "Zed" "ClaudeCode"; do
   bin="${IDE_BINS[$ide]}"
   command -v "$bin" >/dev/null 2>&1 && installed_ides+=("$ide")
 done
@@ -79,7 +81,7 @@ fi
 
 ide_list="$(printf '%s\n' "${installed_ides[@]}")"
 selected_ide="$(printf '%s' "$ide_list" | \
-  walker --dmenu --placeholder "Open '$selected_project' in..." 2>/dev/null || true)"
+  omarchy-menu-select "Open '$selected_project' in..." 2>/dev/null || true)"
 
 [[ -z "$selected_ide" ]] && exit 0
 
