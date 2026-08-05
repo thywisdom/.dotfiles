@@ -20,6 +20,7 @@ require("hypr.monitors")
 require("hypr.input")
 require("hypr.bindings")
 require("hypr.looknfeel")
+require("hypr.envs")       -- personal env overrides (PATH, Tensaku, Chromium/Electron)
 require("hypr.autostart")
 require("hypr.windowrules")
 

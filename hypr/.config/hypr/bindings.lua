@@ -33,18 +33,30 @@
 -- Remove omarchy defaults before replacing them.
 -- ============================================================
 
-hl.unbind("SUPER + W")
+-- SUPER
+hl.unbind("SUPER + code:61")
 hl.unbind("SUPER + G")
-hl.unbind("SUPER + P")
 hl.unbind("SUPER + L")
 hl.unbind("SUPER + O")
+hl.unbind("SUPER + P")
+hl.unbind("SUPER + RETURN")
 hl.unbind("SUPER + slash")
-hl.unbind("SUPER + code:61")
+hl.unbind("SUPER + TAB")
+hl.unbind("SUPER + W")
+
+-- SUPER + SHIFT
+hl.unbind("SUPER + SHIFT + B")
+hl.unbind("SUPER + SHIFT + F")
+hl.unbind("SUPER + SHIFT + N")
+hl.unbind("SUPER + SHIFT + RETURN")
+
+-- SUPER + ALT
 hl.unbind("SUPER + ALT + code:61")
 hl.unbind("SUPER + ALT + RETURN")
-hl.unbind("SUPER + SHIFT + F")
-hl.unbind("SUPER + TAB")
 
+-- SUPER + ALT + SHIFT
+hl.unbind("SUPER + ALT + SHIFT + B")
+hl.unbind("SUPER + ALT + SHIFT + F")
 
 -- ============================================================
 -- SESSION — SYSTEM CONTROLS
@@ -66,7 +78,7 @@ o.bind("SUPER + CTRL + SHIFT + K", "Toggle Keyboard RGB",   "/home/suman/.config
 -- ============================================================
 
 -- Terminal
--- o.bind("SUPER + Return",       "Terminal",  "uwsm app -- $(omarchy-default-terminal) --working-directory $(omarchy-cmd-terminal-cwd)")
+o.bind("SUPER + Return",       "Terminal",  "uwsm app -- $(omarchy-default-terminal) --working-directory $(omarchy-cmd-terminal-cwd)")
 o.bind("SUPER + SHIFT + Return", "Tmux",   "uwsm app -- xdg-terminal-exec --dir=\"$(omarchy-cmd-terminal-cwd)\" tmux new")
 
 -- Editor
