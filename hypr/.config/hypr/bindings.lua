@@ -130,7 +130,8 @@ o.bind("SUPER + SHIFT + N", "Notes (Google Keep)", o.launch_webapp("https://keep
 o.bind("SUPER + R", "Reddit", o.launch_webapp("https://reddit.com"))
 
 -- W
-o.bind("SUPER + SHIFT + W", "WhatsApp", o.launch_webapp("https://web.whatsapp.com/"))
+o.bind("SUPER + ALT + W", "WhatsApp", o.launch_webapp("https://web.whatsapp.com/"))
+o.bind("SUPER + SHIFT + W", "Telegram", "uwsm app -- Telegram %u")
 
 -- Y
 o.bind("SUPER + Y", "YouTube", o.launch_webapp("https://youtube.com/"))

@@ -50,6 +50,8 @@
 -- })
 
 
+
+-- Custom
 hl.config({
   general = {
     gaps_in  = 0,  -- No gaps between windows
