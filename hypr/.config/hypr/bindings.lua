@@ -58,6 +58,9 @@ hl.unbind("SUPER + ALT + RETURN")
 hl.unbind("SUPER + ALT + SHIFT + B")
 hl.unbind("SUPER + ALT + SHIFT + F")
 
+-- SUPER + CTRL
+hl.unbind("SUPER + CTRL + N")
+
 -- ============================================================
 -- SESSION — SYSTEM CONTROLS
 -- ============================================================
@@ -79,7 +82,8 @@ o.bind("SUPER + CTRL + SHIFT + K", "Toggle Keyboard RGB",   "/home/suman/.config
 
 -- Terminal
 o.bind("SUPER + Return",       "Terminal",  "uwsm app -- $(omarchy-default-terminal) --working-directory $(omarchy-cmd-terminal-cwd)")
-o.bind("SUPER + SHIFT + Return", "Tmux",   "uwsm app -- xdg-terminal-exec --dir=\"$(omarchy-cmd-terminal-cwd)\" tmux new")
+o.bind("SUPER + SHIFT + Return", "Herdr",   "uwsm app -- xdg-terminal-exec --dir=\"$(omarchy-cmd-terminal-cwd)\" herdr ")
+-- o.bind("SUPER + SHIFT + Return", "Tmux",   "uwsm app -- xdg-terminal-exec --dir=\"$(omarchy-cmd-terminal-cwd)\" tmux new")
 
 -- Editor
 o.bind("SUPER + comma",         "Editor (Code)",        "uwsm app -- vscodium")
@@ -126,6 +130,7 @@ o.bind("SUPER + SHIFT + M", "Email (Personal)", o.launch_webapp("https://mail.go
 o.bind("SUPER + N",         "Notes (Zennotes)",    o.launch_sole("zennotes", "zennotes --enable-wayland-ime"))
 o.bind("SUPER + SHIFT + N", "Notes (Google Keep)", o.launch_webapp("https://keep.google.com/u/0/"))
 
+
 -- R
 o.bind("SUPER + R", "Reddit", o.launch_webapp("https://reddit.com"))
 
@@ -141,5 +146,11 @@ o.bind("SUPER + Y", "YouTube", o.launch_webapp("https://youtube.com/"))
 -- ============================================================
 
 -- Music workspace scratchpad (special:music)
-o.bind("SUPER + Z",         "Music Workspace (special:music)",    "~/.local/bin/music-workspace")
-o.bind("SUPER + ALT + Z",   "Move Window → Music Workspace",      hl.dsp.window.move({ workspace = "special:music", follow = false }))
+o.bind("SUPER + F1",         "Music Workspace (special:music)",    "~/.local/bin/music-workspace")
+o.bind("SUPER + ALT + F1",   "Move Window → Music Workspace",      hl.dsp.window.move({ workspace = "special:music", follow = false }))
+
+-- ============================================================
+-- CUSTOM SCRIPTED BINDINGS
+-- ============================================================
+
+o.bind("SUPER + CTRL + N", "Toggle Nightlight (3250K)", "bash -c 'temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE \"[0-9]+\"); if [ \"$temp\" -lt 6000 ]; then hyprctl hyprsunset temperature 6500; else hyprctl hyprsunset temperature 3250; fi'")

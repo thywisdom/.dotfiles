@@ -22,12 +22,10 @@ open_in_terminal() {
   fi
 }
 
-choice=$(printf 'Nightlight\nVault Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\nBin Permissions\n' | omarchy-menu-select "Quick Access Scripts")
+choice=$(printf 'Vault Sync\nProject Open\nKeyboard RGB\nIgnore Package\nShow Ignored Packages\nBin Permissions\n' | omarchy-menu-select "Quick Access Scripts")
 
 case "$choice" in
-  "Nightlight")
-    exec "$SCRIPTS_DIR/nightlight.sh"
-    ;;
+  # Nightlight option removed
   "Vault Sync")
     exec "${SCRIPTS_DIR}/vault-sync.sh"
     ;;

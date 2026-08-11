@@ -54,12 +54,12 @@
 -- Custom
 hl.config({
   general = {
-    gaps_in  = 0,  -- No gaps between windows
+    gaps_in  = 0,
     gaps_out = 0,
   },
 
   decoration = {
-    rounding = 0,  -- Square window corners
+    rounding = 0,
 
     shadow = {
       enabled = true,
@@ -67,6 +67,11 @@ hl.config({
 
     blur = {
       enabled = true,
+      special = true,
+      size = 8,
+      passes = 2,
     },
+
+    dim_special = 0.35,
   },
 })
