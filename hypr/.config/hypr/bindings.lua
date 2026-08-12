@@ -127,7 +127,8 @@ o.bind("SUPER + M",         "Email (Primary)",  o.launch_webapp("https://mail.go
 o.bind("SUPER + SHIFT + M", "Email (Personal)", o.launch_webapp("https://mail.google.com/mail/u/1/"))
 
 -- N
-o.bind("SUPER + N",         "Notes (Zennotes)",    o.launch_sole("zennotes", "zennotes --enable-wayland-ime"))
+o.bind("SUPER + N",         "Notes (Obsidian)",    o.launch_sole("obsidian", "obsidian --enable-wayland-ime"))
+-- o.bind("SUPER + N",         "Notes (Zennotes)",    o.launch_sole("zennotes", "zennotes --enable-wayland-ime"))
 o.bind("SUPER + SHIFT + N", "Notes (Google Keep)", o.launch_webapp("https://keep.google.com/u/0/"))
 
 
