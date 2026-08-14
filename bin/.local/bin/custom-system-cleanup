@@ -1,1471 +1,851 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# system-cleanup - Production-Quality Arch Linux Maintenance & Cleanup Utility
+# custom-system-cleanup v2.0.0 — Arch Linux Streamlined System Maintenance
 # ==============================================================================
-# Designed specifically for:
-#   - Arch Linux
-#   - systemd
-#   - pacman
-#   - Snapper & Btrfs systems
-#   - Normal desktop users
-#
-# Features:
-#   - Single sudo authentication at startup with background keep-alive
-#   - Exact before/after du disk usage measurements and space accounting
-#   - Dry-run inspection mode
-#   - Native pacman -Scc with residual download-* directory fallback
-#   - Safe systemd-coredump cleanup (preserves metadata integrity)
-#   - User cache (~/.cache) and Trash cleanup with explicit confirmations
-#   - Safe /tmp and /var/tmp cleanup using systemd-tmpfiles & runtime socket protection
-#   - Traditional /var/log rotated archive cleanup (excludes /var/log/journal & pacman.log)
-#   - systemd journal vacuuming (conservative & aggressive options)
-#   - Snapper snapshot management with strict protection for snapshot 0
-#   - Full cleanup batch/interactive execution flow
-#   - Comprehensive failure tracking and summary reporting
-#   - Optional BleachBit integration upon exit
+# UI    : gum (Charmbracelet) — pre-themed Catppuccin Mocha via Omarchy env
+# Flow  : inspect (dry-run) → single confirm → execute stages → summary
+# Ref   : ~/dotfiles/TUI_reference.md
+# Rule  : Hyprland floats this terminal via windowrules.lua L15
 # ==============================================================================
 
-set -u
-set -o pipefail
+set -uo pipefail
 
-# Set Wayland app ID for Hyprland floating window rule
-export WAYLAND_APP_ID="custom-script"
+# Hyprland window rule: ^((custom|user)-scripts?)$ → float 1350×708 centered
+export WAYLAND_APP_ID="custom-scripts"
 
-# ------------------------------------------------------------------------------
-# 1. Global Constants & Configuration
-# ------------------------------------------------------------------------------
-readonly SCRIPT_NAME="system-cleanup"
-readonly SCRIPT_VERSION="1.0.0"
-readonly PACMAN_PKG_CACHE="/var/cache/pacman/pkg"
+# ── Constants ──────────────────────────────────────────────────────────────────
+readonly SCRIPT_NAME="custom-system-cleanup"
+readonly SCRIPT_VERSION="2.0.0"
+readonly PACMAN_CACHE="/var/cache/pacman/pkg"
 readonly COREDUMP_DIR="/var/lib/systemd/coredump"
-readonly USER_CACHE_DIR="${HOME}/.cache"
-readonly USER_TRASH_DIR="${HOME}/.local/share/Trash"
-readonly TMP_DIR="/tmp"
-readonly VAR_TMP_DIR="/var/tmp"
-readonly VAR_LOG_DIR="/var/log"
-readonly JOURNAL_LOG_DIR="/var/log/journal"
+readonly USER_CACHE="${HOME}/.cache"
+readonly USER_TRASH="${HOME}/.local/share/Trash"
+readonly VAR_LOG="/var/log"
+readonly JOURNAL_DIR="/var/log/journal"
 
-# Background keep-alive process ID for sudo
+# ── Mutable state ─────────────────────────────────────────────────────────────
 SUDO_KEEPALIVE_PID=""
+BATCH=0   # --yes / -y  : auto-proceed safe stages
+DRY=0     # --dry-run/-d: inspect only, no changes
 
-# Running totals and statistics
-declare -a STAGE_KEYS=()
-declare -A STAGE_LABELS=()
-declare -A STAGE_BEFORE=()
-declare -A STAGE_AFTER=()
-declare -A STAGE_RECLAIMED=()
-declare -A STAGE_STATUS=()
-declare -A STAGE_NOTES=()
+# Stage accounting
+declare -a  SK=()
+declare -A  SL=()  # label
+declare -A  SB=()  # before bytes
+declare -A  SA=()  # after bytes
+declare -A  SF=()  # freed bytes
+declare -A  SS=()  # status
+declare -A  SN=()  # notes
 
-# Batch mode flag ("all" = pre-approve standard prompts, "step" = ask each stage)
-BATCH_CONFIRM_ALL=0
-
-# ------------------------------------------------------------------------------
-# 2. Terminal UI & Styling
-# ------------------------------------------------------------------------------
-# Detect color support
-if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]] && [[ "${TERM:-}" != "dumb" ]]; then
-    readonly C_RESET="\033[0m"
-    readonly C_BOLD="\033[1m"
-    readonly C_DIM="\033[2m"
-    readonly C_RED="\033[1;31m"
-    readonly C_GREEN="\033[1;32m"
-    readonly C_YELLOW="\033[1;33m"
-    readonly C_BLUE="\033[1;34m"
-    readonly C_MAGENTA="\033[1;35m"
-    readonly C_CYAN="\033[1;36m"
-    readonly C_WHITE="\033[1;37m"
-    readonly C_GRAY="\033[0;90m"
-else
-    readonly C_RESET=""
-    readonly C_BOLD=""
-    readonly C_DIM=""
-    readonly C_RED=""
-    readonly C_GREEN=""
-    readonly C_YELLOW=""
-    readonly C_BLUE=""
-    readonly C_MAGENTA=""
-    readonly C_CYAN=""
-    readonly C_WHITE=""
-    readonly C_GRAY=""
-fi
-
-# Status Tags
-print_info()  { echo -e "${C_BLUE}[INFO]${C_RESET}  $*"; }
-print_check() { echo -e "${C_CYAN}[CHECK]${C_RESET} $*"; }
-print_clean() { echo -e "${C_MAGENTA}[CLEAN]${C_RESET} $*"; }
-print_done()  { echo -e "${C_GREEN}[DONE]${C_RESET}  $*"; }
-print_skip()  { echo -e "${C_GRAY}[SKIP]${C_RESET}  $*"; }
-print_warn()  { echo -e "${C_YELLOW}[WARN]${C_RESET}  $*"; }
-print_error() { echo -e "${C_RED}[ERROR]${C_RESET} $*"; }
-
-# UI Box & Separator Helpers
-print_header() {
-    local title="$1"
-    local width=68
-    local line
-    printf -v line '%*s' "$width" ''
-    line="${line// /─}"
-    echo ""
-    echo -e "${C_CYAN}┌${line}┐${C_RESET}"
-    printf "${C_CYAN}│${C_BOLD}${C_WHITE} %-*s ${C_CYAN}│${C_RESET}\n" $((width - 2)) "$title"
-    echo -e "${C_CYAN}└${line}┘${C_RESET}"
-}
-
-print_section() {
-    local title="$1"
-    echo ""
-    echo -e "${C_BOLD}${C_WHITE}── ${title} ${C_GRAY}──────────────────────────────────────────────${C_RESET}"
-}
-
-print_divider() {
-    echo -e "${C_GRAY}────────────────────────────────────────────────────────────────────${C_RESET}"
-}
-
-# ------------------------------------------------------------------------------
-# 3. Process & Signal Cleanup Traps
-# ------------------------------------------------------------------------------
-cleanup_on_exit() {
-    local exit_code=$?
-    # Restore cursor if hidden
+# ── Exit / Signal traps ────────────────────────────────────────────────────────
+_on_exit() {
+    local code=$?
     tput cnorm 2>/dev/null || true
-    # Terminate background sudo keepalive
-    if [[ -n "${SUDO_KEEPALIVE_PID}" ]] && kill -0 "${SUDO_KEEPALIVE_PID}" 2>/dev/null; then
-        kill "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true
-        wait "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true
-    fi
-    exit "$exit_code"
+    [[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true
+    exit "${code}"
 }
+trap '_on_exit' EXIT INT TERM HUP
 
-trap cleanup_on_exit EXIT INT TERM HUP
-
-# ------------------------------------------------------------------------------
-# 4. Sudo Lifecycle & Authentication
-# ------------------------------------------------------------------------------
-init_sudo_auth() {
-    print_section "Sudo Authentication"
-
-    # Verify not running directly as root
-    if [[ "${EUID}" -eq 0 ]]; then
-        print_error "Do not run ${SCRIPT_NAME} directly as root."
-        echo "       Please run as a regular user with sudo privileges."
-        echo "       The script will elevate specific operations safely."
+# ── Sudo: single auth + background keepalive (Omarchy pattern) ────────────────
+init_sudo() {
+    if [[ ${EUID} -eq 0 ]]; then
+        gum log --level error "Do not run as root. Use a regular user with sudo privileges."
         exit 1
     fi
-
-    # Check for sudo binary
-    if ! command -v sudo >/dev/null 2>&1; then
-        print_error "The 'sudo' command is required but not found in PATH."
+    if ! command -v sudo &>/dev/null; then
+        gum log --level error "'sudo' not found in PATH."
         exit 1
     fi
-
-    print_info "Current user: ${C_BOLD}${USER}${C_RESET} (UID: $(id -u))"
-    print_info "Authenticating with sudo for system maintenance tasks..."
-
-    local auth_success=0
-    while [[ $auth_success -eq 0 ]]; do
-        if sudo -v -p "[sudo] Password for %u: "; then
-            auth_success=1
-            print_done "Sudo authentication validated."
-        else
-            print_error "Sudo authentication failed."
-            echo ""
-            echo "Options:"
-            echo "  1) Retry password"
-            echo "  2) Exit script"
-            read -rp "Select [1-2] (default 1): " retry_choice
-            retry_choice="${retry_choice:-1}"
-            if [[ "$retry_choice" != "1" ]]; then
-                echo "Exiting."
-                exit 1
-            fi
-        fi
-    done
-
-    # Spawn background keep-alive loop (pings sudo every 50s while parent $$ lives)
-    (
-        while kill -0 "$$" 2>/dev/null; do
-            sleep 50
-            sudo -n -v 2>/dev/null || break
-        done
-    ) &
+    if ! sudo -v -p "[sudo] password for %u: "; then
+        gum log --level error "Sudo authentication failed."
+        exit 1
+    fi
+    # Keepalive: ping sudo every 60 s while this process lives
+    while true; do sudo -n true; sleep 60; done 2>/dev/null &
     SUDO_KEEPALIVE_PID=$!
 }
 
-# ------------------------------------------------------------------------------
-# 5. Helpers: Formatting, Accounting, Spinners & Prompts
-# ------------------------------------------------------------------------------
-format_bytes() {
-    local bytes="${1:-0}"
-    # Ensure numeric
-    if [[ ! "$bytes" =~ ^[0-9]+$ ]]; then
-        echo "0 B"
-        return
-    fi
-
-    if (( bytes < 1024 )); then
-        echo "${bytes} B"
-    elif (( bytes < 1048576 )); then
-        awk -v b="$bytes" 'BEGIN { printf "%.2f KiB", b/1024 }'
-    elif (( bytes < 1073741824 )); then
-        awk -v b="$bytes" 'BEGIN { printf "%.2f MiB", b/1048576 }'
-    elif (( bytes < 1099511627776 )); then
-        awk -v b="$bytes" 'BEGIN { printf "%.2f GiB", b/1073741824 }'
-    else
-        awk -v b="$bytes" 'BEGIN { printf "%.2f TiB", b/1099511627776 }'
-    fi
+# ── Helpers ───────────────────────────────────────────────────────────────────
+fmt_bytes() {
+    local b="${1:-0}"
+    [[ ! "${b}" =~ ^[0-9]+$ ]] && echo "0 B" && return
+    awk -v b="${b}" 'BEGIN {
+        if      (b <       1024) printf "%d B",     b
+        else if (b <    1048576) printf "%.1f KiB", b/1024
+        else if (b < 1073741824) printf "%.2f MiB", b/1048576
+        else                     printf "%.2f GiB", b/1073741824
+    }'
 }
 
-get_path_size_bytes() {
-    local target_path="$1"
-    local use_sudo="${2:-0}"
-
-    if [[ ! -e "$target_path" ]]; then
-        echo 0
-        return
-    fi
-
-    local size_bytes=""
-    if [[ "$use_sudo" -eq 1 ]]; then
-        size_bytes=$(sudo du -s --block-size=1 "$target_path" 2>/dev/null | awk '{print $1}')
+get_size() {
+    local path="${1}" use_sudo="${2:-0}"
+    [[ ! -e "${path}" ]] && echo 0 && return
+    local s=0
+    if (( use_sudo )); then
+        s=$(sudo du -s --block-size=1 "${path}" 2>/dev/null | awk '{print $1}') || s=0
     else
-        size_bytes=$(du -s --block-size=1 "$target_path" 2>/dev/null | awk '{print $1}')
+        s=$(du -s --block-size=1 "${path}" 2>/dev/null | awk '{print $1}') || s=0
     fi
-
-    echo "${size_bytes:-0}"
+    echo "${s:-0}"
 }
 
-get_journal_size_bytes() {
-    if [[ -d "$JOURNAL_LOG_DIR" ]]; then
-        get_path_size_bytes "$JOURNAL_LOG_DIR" 1
+get_journal_size() {
+    if [[ -d "${JOURNAL_DIR}" ]]; then
+        get_size "${JOURNAL_DIR}" 1
     elif [[ -d "/run/log/journal" ]]; then
-        get_path_size_bytes "/run/log/journal" 1
+        get_size "/run/log/journal" 1
     else
         echo 0
     fi
 }
 
-run_with_spinner() {
-    local message="$1"
-    shift
-    local log_file
-    log_file=$(mktemp /tmp/system-cleanup-cmd.XXXXXX)
+record() {
+    # record <key> <label> <before> <after> <STATUS> [note]
+    local key="${1}" label="${2}" before="${3}" after="${4}" status="${5}" note="${6:-}"
+    local freed=0
+    if (( before > after )); then
+        freed=$(( before - after ))
+    fi
+    SK+=("${key}")
+    SL["${key}"]="${label}"
+    SB["${key}"]="${before}"
+    SA["${key}"]="${after}"
+    SF["${key}"]="${freed}"
+    SS["${key}"]="${status}"
+    SN["${key}"]="${note}"
+}
 
-    local spin_chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    local spin_idx=0
+section() {
+    # section <n> <total> <title>
+    echo
+    gum style --foreground "#89b4fa" --bold "── [${1}/${2}]  ${3}"
+}
 
-    # Hide cursor
-    tput civis 2>/dev/null || true
+# ── Phase 1: Inspect / Dry-run ────────────────────────────────────────────────
+phase_inspect() {
+    clear
 
-    # Execute command in background
-    "$@" >"$log_file" 2>&1 &
-    local cmd_pid=$!
+    # ── Banner ────────────────────────────────────────────────────────────────
+    gum style \
+        --border rounded \
+        --border-foreground "#89b4fa" \
+        --padding "1 3" \
+        "$(gum style --bold --foreground '#cdd6f4' "  Arch Linux System Cleanup  v${SCRIPT_VERSION}")" \
+        "" \
+        "  $(uname -n)  ·  ${USER}  ·  kernel $(uname -r)"
 
-    while kill -0 "$cmd_pid" 2>/dev/null; do
-        printf "\r${C_CYAN}%s${C_RESET} %s..." "${spin_chars[spin_idx]}" "$message"
-        spin_idx=$(( (spin_idx + 1) % ${#spin_chars[@]} ))
-        sleep 0.08
-    done
+    # ── Disk usage ────────────────────────────────────────────────────────────
+    echo
+    gum style --foreground "#89b4fa" --bold "Disk Usage"
 
-    wait "$cmd_pid"
-    local exit_status=$?
+    local root_src home_src
+    root_src=$(df --output=source / 2>/dev/null | tail -1) || root_src=""
+    home_src=$(df --output=source "${HOME}" 2>/dev/null | tail -1) || home_src=""
 
-    # Clear spinner line
-    printf "\r\033[K"
-    tput cnorm 2>/dev/null || true
+    df -h / 2>/dev/null | awk 'NR==2 {
+        printf "  %-8s  %s used / %s total  (%s avail  %s)\n", $6, $3, $2, $4, $5
+    }'
+    if [[ "${home_src}" != "${root_src}" ]]; then
+        df -h "${HOME}" 2>/dev/null | awk 'NR==2 {
+            printf "  %-8s  %s used / %s total  (%s avail  %s)\n", $6, $3, $2, $4, $5
+        }'
+    fi
 
-    if [[ $exit_status -eq 0 ]]; then
-        print_done "$message completed."
+    # ── Scan targets ──────────────────────────────────────────────────────────
+    echo
+    gum style --foreground "#585b70" "Scanning cleanup targets — no changes made..."
+    echo
+
+    local sz_core sz_pacman sz_ucache sz_trash sz_tmp sz_vartmp sz_tradlog sz_journal
+    sz_core=$(get_size "${COREDUMP_DIR}" 1)
+    sz_pacman=$(get_size "${PACMAN_CACHE}" 1)
+    sz_ucache=$(get_size "${USER_CACHE}" 0)
+    sz_trash=$(get_size "${USER_TRASH}" 0)
+    sz_tmp=$(get_size "/tmp" 1)
+    sz_vartmp=$(get_size "/var/tmp" 1)
+    sz_journal=$(get_journal_size)
+    local total_log; total_log=$(get_size "${VAR_LOG}" 1)
+    if (( total_log > sz_journal )); then
+        sz_tradlog=$(( total_log - sz_journal ))
     else
-        print_error "$message failed (exit code $exit_status)."
-        if [[ -s "$log_file" ]]; then
-            echo -e "${C_GRAY}--- Command Output ---${C_RESET}"
-            head -n 20 "$log_file" | sed 's/^/  /'
-            if (( $(wc -l < "$log_file") > 20 )); then
-                echo "  ... (output truncated)"
+        sz_tradlog=0
+    fi
+
+    # Orphan count
+    local orphan_list orphan_count=0
+    orphan_list=$(pacman -Qdtq 2>/dev/null) || orphan_list=""
+    [[ -n "${orphan_list}" ]] && orphan_count=$(echo "${orphan_list}" | wc -l)
+
+    # Snapper info
+    local snap_total=0 snap_removable=0
+    if command -v snapper &>/dev/null; then
+        local cfgs; cfgs=$(snapper list-configs 2>/dev/null | awk 'NR>2 {print $1}') || cfgs=""
+        for c in ${cfgs}; do
+            local snaps; snaps=$(sudo snapper -c "${c}" list 2>/dev/null | awk 'NR>2 && $1 ~ /^[0-9]+$/' ) || snaps=""
+            if [[ -n "${snaps}" ]]; then
+                local sc; sc=$(echo "${snaps}" | wc -l)
+                snap_total=$(( snap_total + sc ))
+                local rc; rc=$(echo "${snaps}" | awk '$1 != "0"' | wc -l)
+                snap_removable=$(( snap_removable + rc ))
             fi
-            echo -e "${C_GRAY}----------------------${C_RESET}"
-        fi
+        done
     fi
 
-    rm -f "$log_file"
-    return "$exit_status"
-}
-
-prompt_confirm() {
-    local question="$1"
-    local default_ans="${2:-N}" # Y or N
-
-    # If running in batch "Confirm all" mode, accept standard non-critical confirmations
-    if [[ "$BATCH_CONFIRM_ALL" -eq 1 ]]; then
-        echo -e "${question} ${C_DIM}[Batch confirmed: Yes]${C_RESET}"
-        return 0
-    fi
-
-    local prompt_str="[y/N]"
-    [[ "${default_ans^^}" == "Y" ]] && prompt_str="[Y/n]"
-
-    echo -ne "${C_YELLOW}${question} ${prompt_str}:${C_RESET} "
-    local reply
-    read -r reply
-    reply="${reply:-$default_ans}"
-
-    if [[ "${reply^^}" == "Y" || "${reply^^}" == "YES" ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-record_stage_result() {
-    local stage_key="$1"
-    local label="$2"
-    local before_b="$3"
-    local after_b="$4"
-    local status="$5" # SUCCESS, PARTIAL, SKIPPED, FAILED
-    local notes="${6:-}"
-
-    local reclaimed_b=0
-    if (( before_b > after_b )); then
-        reclaimed_b=$(( before_b - after_b ))
-    fi
-
-    STAGE_KEYS+=("$stage_key")
-    STAGE_LABELS["$stage_key"]="$label"
-    STAGE_BEFORE["$stage_key"]="$before_b"
-    STAGE_AFTER["$stage_key"]="$after_b"
-    STAGE_RECLAIMED["$stage_key"]="$reclaimed_b"
-    STAGE_STATUS["$stage_key"]="$status"
-    STAGE_NOTES["$stage_key"]="$notes"
-}
-
-# ------------------------------------------------------------------------------
-# 6. Overview & Dry-Run Inspection
-# ------------------------------------------------------------------------------
-get_snapper_info() {
-    local -n out_installed=$1
-    local -n out_configs=$2
-    local -n out_total_snaps=$3
-    local -n out_removable_snaps=$4
-
-    out_installed=0
-    out_configs=""
-    out_total_snaps=0
-    out_removable_snaps=0
-
-    if ! command -v snapper >/dev/null 2>&1; then
-        return
-    fi
-    out_installed=1
-
-    local cfg_list
-    cfg_list=$(snapper list-configs 2>/dev/null | awk 'NR>2 {print $1}')
-    out_configs="$cfg_list"
-
-    if [[ -z "$cfg_list" ]]; then
-        return
-    fi
-
-    for cfg in $cfg_list; do
-        local snap_lines
-        snap_lines=$(sudo snapper -c "$cfg" list 2>/dev/null | awk 'NR>2 && $1 ~ /^[0-9]+$/')
-        if [[ -n "$snap_lines" ]]; then
-            local count
-            count=$(echo "$snap_lines" | wc -l)
-            out_total_snaps=$(( out_total_snaps + count ))
-            # Exclude snapshot 0
-            local removable
-            removable=$(echo "$snap_lines" | awk '$1 != "0"' | wc -l)
-            out_removable_snaps=$(( out_removable_snaps + removable ))
-        fi
-    done
-}
-
-show_system_overview() {
-    print_header "Arch Linux System Overview"
-
-    local hostname_str
-    hostname_str=$(uname -n 2>/dev/null || echo "unknown")
-
-    # Filesystem info
-    local root_df home_df
-    root_df=$(df -h / 2>/dev/null | awk 'NR==2 {printf "%s used / %s total (%s avail, %s)", $3, $2, $4, $5}')
-    home_df=$(df -h "$HOME" 2>/dev/null | awk 'NR==2 {printf "%s used / %s total (%s avail, %s)", $3, $2, $4, $5}')
-
-    # Target measurements
-    local sz_journal sz_pacman sz_coredump sz_trash sz_tmp sz_vartmp
-    sz_journal=$(get_journal_size_bytes)
-    sz_pacman=$(get_path_size_bytes "$PACMAN_PKG_CACHE" 1)
-    sz_coredump=$(get_path_size_bytes "$COREDUMP_DIR" 1)
-    sz_trash=$(get_path_size_bytes "$USER_TRASH_DIR" 0)
-    sz_tmp=$(get_path_size_bytes "$TMP_DIR" 1)
-    sz_vartmp=$(get_path_size_bytes "$VAR_TMP_DIR" 1)
-
-    # Snapper inspection
-    local snap_installed snap_configs snap_total snap_removable
-    get_snapper_info snap_installed snap_configs snap_total snap_removable
-
-    echo -e "${C_BOLD}System Properties:${C_RESET}"
-    printf "  • %-24s : %s\n" "Hostname" "$hostname_str"
-    printf "  • %-24s : %s\n" "User" "$USER"
-    printf "  • %-24s : %s\n" "Root (/) Usage" "$root_df"
-    printf "  • %-24s : %s\n" "Home (~/) Usage" "$home_df"
-
-    echo ""
-    echo -e "${C_BOLD}Cleanup Targets Storage:${C_RESET}"
-    printf "  • %-24s : %-12s ${C_GRAY}(/var/cache/pacman/pkg)${C_RESET}\n" "Pacman Cache" "$(format_bytes "$sz_pacman")"
-    printf "  • %-24s : %-12s ${C_GRAY}(systemd journal)${C_RESET}\n" "systemd Journal" "$(format_bytes "$sz_journal")"
-    printf "  • %-24s : %-12s ${C_GRAY}(/var/lib/systemd/coredump)${C_RESET}\n" "Coredumps" "$(format_bytes "$sz_coredump")"
-    printf "  • %-24s : %-12s ${C_GRAY}(~/.local/share/Trash)${C_RESET}\n" "User Trash" "$(format_bytes "$sz_trash")"
-    printf "  • %-24s : %-12s ${C_GRAY}(/tmp)${C_RESET}\n" "Temporary Files" "$(format_bytes "$sz_tmp")"
-    printf "  • %-24s : %-12s ${C_GRAY}(/var/tmp)${C_RESET}\n" "Persistent Temp" "$(format_bytes "$sz_vartmp")"
-
-    if [[ "$snap_installed" -eq 1 ]]; then
-        printf "  • %-24s : %d total (%d removable, snapshot 0 protected)\n" "Snapper Snapshots" "$snap_total" "$snap_removable"
-    else
-        printf "  • %-24s : Snapper not installed / no config\n" "Snapper Snapshots"
-    fi
-    print_divider
-}
-
-do_review_overview() {
-    print_header "Option 1: Review Cleanup Targets (Dry-Run Mode)"
-    print_info "Scanning all maintenance targets. No files will be modified or removed."
-
-    local sz_coredump sz_pacman sz_ucache sz_trash sz_tmp sz_vartmp sz_tradlog sz_journal
-    sz_coredump=$(get_path_size_bytes "$COREDUMP_DIR" 1)
-    sz_pacman=$(get_path_size_bytes "$PACMAN_PKG_CACHE" 1)
-    sz_ucache=$(get_path_size_bytes "$USER_CACHE_DIR" 0)
-    sz_trash=$(get_path_size_bytes "$USER_TRASH_DIR" 0)
-    sz_tmp=$(get_path_size_bytes "$TMP_DIR" 1)
-    sz_vartmp=$(get_path_size_bytes "$VAR_TMP_DIR" 1)
-    sz_journal=$(get_journal_size_bytes)
-
-    # Traditional logs (exclude /var/log/journal)
-    local sz_tradlog=0
-    if [[ -d "$VAR_LOG_DIR" ]]; then
-        local total_log
-        total_log=$(get_path_size_bytes "$VAR_LOG_DIR" 1)
-        if (( total_log >= sz_journal )); then
-            sz_tradlog=$(( total_log - sz_journal ))
+    # ── Inspect table (static display with --print) ───────────────────────────
+    {
+        printf "Module,Target Path,Current Size,Risk,Mode\n"
+        _irow "Coredumps"    "${COREDUMP_DIR}"        "${sz_core}"    "Safe"    "Auto"    "${COREDUMP_DIR}"
+        _irow "Pacman Cache" "${PACMAN_CACHE}"         "${sz_pacman}"  "⚠ High"  "Confirm" "${PACMAN_CACHE}"
+        _irow "User Cache"   "~/.cache"               "${sz_ucache}"  "Medium"  "Auto"    "${USER_CACHE}"
+        _irow "Trash"        "~/.local/share/Trash"   "${sz_trash}"   "⚠ High"  "Confirm" "${USER_TRASH}"
+        _irow "/tmp"         "/tmp  (stale >1d)"       "${sz_tmp}"     "Safe"    "Auto"    "/tmp"
+        _irow "/var/tmp"     "/var/tmp  (stale >7d)"   "${sz_vartmp}"  "Safe"    "Auto"    "/var/tmp"
+        _irow "Log Archives" "/var/log (rotated)"      "${sz_tradlog}" "Safe"    "Auto"    "${VAR_LOG}"
+        printf "Journal,journalctl vacuum,→ 1M (aggressive),Medium,Auto\n"
+        printf "Orphan Pkgs,pacman -Rns,${orphan_count} package(s),Medium,Auto\n"
+        if command -v snapper &>/dev/null; then
+            printf "Snapper,Btrfs snapshots,${snap_removable} removable / ${snap_total} total,⚠ High,Confirm\n"
         else
-            sz_tradlog="$total_log"
+            printf "Snapper,Btrfs snapshots,N/A — not installed,—,Skip\n"
         fi
-    fi
+    } | gum table --print --widths "14,26,20,9,8"
 
-    local snap_installed snap_configs snap_total snap_removable
-    get_snapper_info snap_installed snap_configs snap_total snap_removable
+    echo
+    local total_est=$(( sz_core + sz_pacman + sz_ucache + sz_trash + sz_tradlog + sz_journal ))
+    gum style \
+        --foreground "#a6e3a1" \
+        --bold \
+        "  Estimated freeable: $(fmt_bytes "${total_est}")"
+    gum style \
+        --foreground "#585b70" \
+        "  (Actual reclaimed depends on pacman cache contents, active file locks, journal retention)"
 
-    echo ""
-    echo -e "${C_BOLD}┌─────────────────────────┬───────────────────────────────┬────────────┬────────────────────────┐${C_RESET}"
-    echo -e "${C_BOLD}│ Category                │ Target Path                   │ Size       │ Safety Status          │${C_RESET}"
-    echo -e "${C_BOLD}├─────────────────────────┼───────────────────────────────┼────────────┼────────────────────────┤${C_RESET}"
+    # ── Access warnings (shown before confirm) ────────────────────────────────
+    echo
+    local access_ok=1
+    _warn_access "${COREDUMP_DIR}"  "Coredump dir"  0 || access_ok=0
+    _warn_access "${PACMAN_CACHE}"  "Pacman cache"  0 || access_ok=0
+    _warn_access "${USER_CACHE}"    "User cache"    0 || access_ok=0
+    _warn_access "${USER_TRASH}"    "User trash"    0 || access_ok=0
+}
 
-    printf "│ %-23s │ %-29s │ %10s │ ${C_GREEN}%-22s${C_RESET} │\n" \
-        "Coredumps" "/var/lib/systemd/coredump" "$(format_bytes "$sz_coredump")" "Cleanable"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_YELLOW}%-22s${C_RESET} │\n" \
-        "Pacman Package Cache" "/var/cache/pacman/pkg" "$(format_bytes "$sz_pacman")" "Requires Confirmation"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_YELLOW}%-22s${C_RESET} │\n" \
-        "User Cache" "~/.cache/*" "$(format_bytes "$sz_ucache")" "Requires Confirmation"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_YELLOW}%-22s${C_RESET} │\n" \
-        "User Trash" "~/.local/share/Trash" "$(format_bytes "$sz_trash")" "Requires Confirmation"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_GREEN}%-22s${C_RESET} │\n" \
-        "/tmp Directory" "/tmp" "$(format_bytes "$sz_tmp")" "Safe Filtered Cleanup"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_GREEN}%-22s${C_RESET} │\n" \
-        "/var/tmp Directory" "/var/tmp" "$(format_bytes "$sz_vartmp")" "Safe Filtered Cleanup"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_GREEN}%-22s${C_RESET} │\n" \
-        "Traditional Logs" "/var/log (archived/rotated)" "$(format_bytes "$sz_tradlog")" "Safe Filtered Cleanup"
-
-    printf "│ %-23s │ %-29s │ %10s │ ${C_YELLOW}%-22s${C_RESET} │\n" \
-        "systemd Journal" "journalctl vacuum" "$(format_bytes "$sz_journal")" "Conservative/Aggressive"
-
-    if [[ "$snap_installed" -eq 1 ]]; then
-        local snap_label="${snap_removable} removable / ${snap_total} total"
-        printf "│ %-23s │ %-29s │ %10s │ ${C_MAGENTA}%-22s${C_RESET} │\n" \
-            "Snapper Snapshots" "Btrfs Snapshots" "$snap_label" "Snapshot 0 Protected"
+_irow() {
+    local label="${1}" display_path="${2}" sz="${3}" risk="${4}" mode="${5}" real_path="${6}"
+    if [[ ! -e "${real_path}" ]]; then
+        printf "%s,%s,Not found,—,Skip\n" "${label}" "${display_path}"
     else
-        printf "│ %-23s │ %-29s │ %10s │ ${C_GRAY}%-22s${C_RESET} │\n" \
-            "Snapper Snapshots" "Btrfs Snapshots" "N/A" "Unavailable"
+        printf "%s,%s,%s,%s,%s\n" "${label}" "${display_path}" "$(fmt_bytes "${sz}")" "${risk}" "${mode}"
     fi
-
-    echo -e "${C_BOLD}└─────────────────────────┴───────────────────────────────┴────────────┴────────────────────────┘${C_RESET}"
-
-    local total_est=$(( sz_coredump + sz_pacman + sz_ucache + sz_trash + sz_tmp + sz_vartmp + sz_tradlog + sz_journal ))
-    echo ""
-    echo -e "${C_BOLD}Total Potentially Reclaimable Space:${C_RESET} ${C_GREEN}$(format_bytes "$total_est")${C_RESET}"
-    echo -e "${C_GRAY}(Actual reclaimed space depends on active file locks, package redownload needs, and journal retention settings)${C_RESET}"
 }
 
-# ------------------------------------------------------------------------------
-# 7. Category Cleaners
-# ------------------------------------------------------------------------------
-
-# Stage 2: Coredumps
-do_clean_coredumps() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
-
-    print_section "${prefix}Cleaning Stored Coredumps"
-    print_info "Target: ${C_BOLD}${COREDUMP_DIR}${C_RESET}"
-
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$COREDUMP_DIR" 1)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    if [[ ! -d "$COREDUMP_DIR" ]]; then
-        print_skip "Coredump directory does not exist."
-        record_stage_result "coredumps" "Coredumps" "$before_bytes" "$before_bytes" "SKIPPED" "Directory not found"
+_warn_access() {
+    local path="${1}" label="${2}" use_sudo="${3:-0}"
+    if [[ ! -e "${path}" ]]; then
+        gum log --level warn "${label} not found: ${path}"
         return 0
     fi
-
-    local dump_count
-    dump_count=$(sudo find "$COREDUMP_DIR" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
-    print_info "Found ${dump_count} stored core dump files."
-
-    if (( dump_count == 0 )); then
-        print_skip "No stored coredump files to clean."
-        record_stage_result "coredumps" "Coredumps" "$before_bytes" "$before_bytes" "SKIPPED" "No stored files"
-        return 0
-    fi
-
-    # Controlled deletion of regular files inside coredump dir (preserving directory & configs)
-    local err_occurred=0
-    if ! sudo find "$COREDUMP_DIR" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null; then
-        err_occurred=1
-        print_warn "Standard deletion encountered issues, attempting fallback removal..."
-        if ! sudo find "$COREDUMP_DIR" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} + 2>/dev/null; then
-            err_occurred=2
-        fi
-    fi
-
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$COREDUMP_DIR" 1)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    print_info "Note: 'coredumpctl list' may still show 'COREFILE=missing' for past crashes."
-    print_info "      This is normal because systemd journal event records are preserved."
-
-    if (( err_occurred == 2 )); then
-        print_error "Some coredump files could not be removed."
-        record_stage_result "coredumps" "Coredumps" "$before_bytes" "$after_bytes" "PARTIAL" "Permission or locked file errors"
+    if (( use_sudo )); then
+        sudo test -r "${path}" 2>/dev/null || \
+            gum log --level error "Permission denied (sudo): ${path} — stage will be skipped"
     else
-        print_done "Coredump storage cleaned successfully."
-        record_stage_result "coredumps" "Coredumps" "$before_bytes" "$after_bytes" "SUCCESS" ""
+        if [[ ! -r "${path}" ]]; then
+            gum log --level error "Permission denied: ${path} — stage will be skipped"
+        fi
     fi
 }
 
-# Stage 3: Pacman Cache & Download-* Fallback
-do_clean_pacman_cache() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 1: Coredumps ────────────────────────────────────────────────────────
+stage_coredumps() {
+    section 1 10 "Coredumps"
+    local before; before=$(get_size "${COREDUMP_DIR}" 1)
+    gum log --level info "Path: ${COREDUMP_DIR}  ·  Before: $(fmt_bytes "${before}")"
 
-    print_section "${prefix}Cleaning Pacman Package Cache"
-    print_info "Target: ${C_BOLD}${PACMAN_PKG_CACHE}${C_RESET}"
-
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$PACMAN_PKG_CACHE" 1)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    if [[ ! -d "$PACMAN_PKG_CACHE" ]]; then
-        print_skip "Pacman package cache directory not found."
-        record_stage_result "pacman" "Pacman Cache" "$before_bytes" "$before_bytes" "SKIPPED" "Directory not found"
+    if [[ ! -d "${COREDUMP_DIR}" ]]; then
+        gum log --level warn "Directory not found — skipping"
+        record coredumps "Coredumps" "${before}" "${before}" SKIPPED "Dir not found"
         return 0
     fi
 
-    print_warn "This will run 'pacman -Scc' to remove ALL cached package tarballs and unused sync repos."
-    print_warn "Packages will need to be downloaded again if reinstallation or rollback is required."
-
-    if ! prompt_confirm "Do you want to proceed with full pacman cache cleanup?" "Y"; then
-        print_skip "Pacman cache cleanup skipped by user."
-        record_stage_result "pacman" "Pacman Cache" "$before_bytes" "$before_bytes" "SKIPPED" "Declined by user"
+    local count; count=$(sudo find "${COREDUMP_DIR}" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l)
+    if (( count == 0 )); then
+        gum log --level info "No coredump files — already clean"
+        record coredumps "Coredumps" "${before}" "${before}" SKIPPED "Already clean"
         return 0
     fi
 
-    # Run native pacman -Scc
-    local pacman_log
-    pacman_log=$(mktemp /tmp/system-cleanup-pacman.XXXXXX)
-    print_clean "Running native 'pacman -Scc --noconfirm'..."
+    gum log --level info "Found ${count} coredump file(s)"
 
-    # Feed yes or --noconfirm to pacman
-    if sudo pacman -Scc --noconfirm >"$pacman_log" 2>&1; then
-        print_done "Native pacman cache cleaning completed."
+    local err=0
+    if ! sudo find "${COREDUMP_DIR}" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null; then
+        err=1
+        gum log --level warn "Standard delete failed — trying fallback (exec rm -f)..."
+        if ! sudo find "${COREDUMP_DIR}" -mindepth 1 -maxdepth 1 -type f -exec rm -f {} + 2>/dev/null; then
+            err=2
+        fi
+    fi
+
+    local after; after=$(get_size "${COREDUMP_DIR}" 1)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "After: $(fmt_bytes "${after}")  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    gum log --level debug "coredumpctl list may show COREFILE=missing — journal metadata is preserved (normal)"
+
+    if (( err == 2 )); then
+        record coredumps "Coredumps" "${before}" "${after}" PARTIAL "Some files could not be removed"
     else
-        print_warn "Pacman -Scc reported a non-zero exit or warning."
-        grep -i "error" "$pacman_log" | head -n 5 || true
+        record coredumps "Coredumps" "${before}" "${after}" SUCCESS ""
     fi
-
-    # Fallback check for residual /var/cache/pacman/pkg/download-* directories
-    local leftover_downloads=()
-    while IFS= read -r -d $'\0' ddir; do
-        leftover_downloads+=("$ddir")
-    done < <(sudo find "$PACMAN_PKG_CACHE" -mindepth 1 -maxdepth 1 -type d -name "download-*" -print0 2>/dev/null)
-
-    if (( ${#leftover_downloads[@]} > 0 )); then
-        print_warn "Detected ${#leftover_downloads[@]} residual pacman 'download-*' temporary directories."
-        echo "       (Common pacman issue: 'error: could not remove ...: Is a directory')"
-
-        if prompt_confirm "Run controlled fallback to remove only residual 'download-*' directories?" "Y"; then
-            print_clean "Removing residual download-* directories..."
-            sudo find "$PACMAN_PKG_CACHE" -mindepth 1 -maxdepth 1 -type d -name "download-*" -exec rm -rf {} + 2>/dev/null
-            print_done "Residual download directories cleaned."
-        else
-            print_skip "Skipped download-* fallback removal."
-        fi
-    fi
-
-    rm -f "$pacman_log"
-
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$PACMAN_PKG_CACHE" 1)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    record_stage_result "pacman" "Pacman Cache" "$before_bytes" "$after_bytes" "SUCCESS" ""
 }
 
-# Stage 4: User Cache
-do_clean_user_cache() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 2: Pacman Package Cache ─────────────────────────────────────────────
+stage_pacman() {
+    section 2 10 "Pacman Package Cache"
+    local before; before=$(get_size "${PACMAN_CACHE}" 1)
+    gum log --level info "Path: ${PACMAN_CACHE}  ·  Before: $(fmt_bytes "${before}")"
 
-    print_section "${prefix}Cleaning User Cache"
-    print_info "Target: ${C_BOLD}${USER_CACHE_DIR}/*${C_RESET}"
-
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$USER_CACHE_DIR" 0)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    if [[ ! -d "$USER_CACHE_DIR" ]]; then
-        print_skip "User cache directory (~/.cache) does not exist."
-        record_stage_result "ucache" "User Cache" "$before_bytes" "$before_bytes" "SKIPPED" "Directory not found"
+    if [[ ! -d "${PACMAN_CACHE}" ]]; then
+        gum log --level warn "Cache directory not found — skipping"
+        record pacman "Pacman Cache" "${before}" "${before}" SKIPPED "Dir not found"
         return 0
     fi
 
-    print_info "Applications will safely regenerate required cache files upon next launch."
-    print_info "Protected locations: ~/.config, ~/.local/share, and user documents are NOT touched."
+    # Always confirm — this is the most destructive single operation
+    echo
+    gum style \
+        --border normal \
+        --border-foreground "#f9e2af" \
+        --padding "1 2" \
+        "$(gum style --foreground '#f9e2af' --bold '⚠  Full Pacman Cache Removal')" \
+        "" \
+        "  pacman -Scc --noconfirm removes ALL cached packages ($(fmt_bytes "${before}"))." \
+        "  Rollbacks and reinstalls will require fresh downloads after this." \
+        "  Residual download-* directories will also be cleared."
+    echo
 
-    if ! prompt_confirm "Do you want to clean ~/.cache contents?" "Y"; then
-        print_skip "User cache cleanup skipped by user."
-        record_stage_result "ucache" "User Cache" "$before_bytes" "$before_bytes" "SKIPPED" "Declined by user"
+    if ! gum confirm "Remove entire pacman cache?"; then
+        gum log --level info "Pacman cache cleanup skipped"
+        record pacman "Pacman Cache" "${before}" "${before}" SKIPPED "Declined"
         return 0
     fi
 
-    print_clean "Pruning contents of ~/.cache..."
-    # Controlled removal of items inside ~/.cache, keeping ~/.cache folder itself intact
-    find "$USER_CACHE_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    local plog; plog=$(mktemp /tmp/cleanup-pacman.XXXXXX)
+    gum spin --spinner dot --title "pacman -Scc --noconfirm..." -- \
+        bash -c "sudo pacman -Scc --noconfirm > '${plog}' 2>&1" || {
+        gum log --level warn "pacman -Scc returned non-zero exit"
+        grep -i "error" "${plog}" 2>/dev/null | head -5 || true
+    }
+    rm -f "${plog}"
 
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$USER_CACHE_DIR" 0)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
+    # Fallback: residual download-* dirs (known pacman bug: "Is a directory" error)
+    local ddir_count
+    ddir_count=$(sudo find "${PACMAN_CACHE}" -mindepth 1 -maxdepth 1 -type d -name "download-*" 2>/dev/null | wc -l) || ddir_count=0
+    if (( ddir_count > 0 )); then
+        gum log --level warn "Found ${ddir_count} residual download-* dir(s) — removing..."
+        sudo find "${PACMAN_CACHE}" -mindepth 1 -maxdepth 1 -type d -name "download-*" \
+            -exec rm -rf {} + 2>/dev/null || true
+        gum log --level info "Residual download-* directories cleared"
+    fi
 
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    print_done "User cache cleaned."
-    record_stage_result "ucache" "User Cache" "$before_bytes" "$after_bytes" "SUCCESS" ""
+    local after; after=$(get_size "${PACMAN_CACHE}" 1)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "After: $(fmt_bytes "${after}")  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record pacman "Pacman Cache" "${before}" "${after}" SUCCESS ""
 }
 
-# Stage 5: Trash
-do_clean_trash() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 3: User Cache ───────────────────────────────────────────────────────
+stage_user_cache() {
+    section 3 10 "User Cache (~/.cache)"
+    local before; before=$(get_size "${USER_CACHE}" 0)
+    gum log --level info "Path: ~/.cache  ·  Before: $(fmt_bytes "${before}")"
 
-    print_section "${prefix}Cleaning User Trash"
-    print_info "Target: ${C_BOLD}${USER_TRASH_DIR}${C_RESET}"
-
-    if [[ ! -d "$USER_TRASH_DIR" ]]; then
-        print_skip "Trash directory not found."
-        record_stage_result "trash" "Trash" 0 0 "SKIPPED" "Trash directory not found"
+    if [[ ! -d "${USER_CACHE}" ]]; then
+        gum log --level warn "~/.cache not found — skipping"
+        record ucache "User Cache" "${before}" "${before}" SKIPPED "Dir not found"
         return 0
     fi
 
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$USER_TRASH_DIR" 0)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
+    gum log --level debug "Apps safely regenerate caches on next launch"
+    find "${USER_CACHE}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
-    if (( before_bytes <= 4096 )); then
-        # Check if actually empty
-        local item_count
-        item_count=$(find "$USER_TRASH_DIR" -mindepth 1 2>/dev/null | wc -l)
-        if (( item_count == 0 )); then
-            print_skip "Trash is already empty."
-            record_stage_result "trash" "Trash" "$before_bytes" "$before_bytes" "SKIPPED" "Already empty"
-            return 0
-        fi
-    fi
-
-    print_warn "Permanent deletion: files in Trash cannot be recovered."
-    if ! prompt_confirm "Do you wish to permanently remove everything in Trash?" "N"; then
-        print_skip "Trash cleanup skipped by user."
-        record_stage_result "trash" "Trash" "$before_bytes" "$before_bytes" "SKIPPED" "Declined by user"
-        return 0
-    fi
-
-    print_clean "Emptying Trash..."
-    rm -rf "${USER_TRASH_DIR:?}"/* 2>/dev/null || true
-    # Ensure standard trash structure exists
-    mkdir -p "${USER_TRASH_DIR}/files" "${USER_TRASH_DIR}/info" 2>/dev/null || true
-
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$USER_TRASH_DIR" 0)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    print_done "Trash emptied successfully."
-    record_stage_result "trash" "Trash" "$before_bytes" "$after_bytes" "SUCCESS" ""
+    local after; after=$(get_size "${USER_CACHE}" 0)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "After: $(fmt_bytes "${after}")  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record ucache "User Cache" "${before}" "${after}" SUCCESS ""
 }
 
-# Stage 6: /tmp
-do_clean_tmp() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 4: User Trash ───────────────────────────────────────────────────────
+stage_trash() {
+    section 4 10 "User Trash"
 
-    print_section "${prefix}Cleaning /tmp"
-    print_info "Target: ${C_BOLD}${TMP_DIR}${C_RESET}"
-
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$TMP_DIR" 1)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    print_info "Applying safe temporary file cleanup..."
-    print_info "Active runtime sockets, locks, X11, Wayland, and systemd-private dirs are strictly preserved."
-
-    # 1. Run official systemd-tmpfiles clean
-    if command -v systemd-tmpfiles >/dev/null 2>&1; then
-        run_with_spinner "Running systemd-tmpfiles --clean" sudo systemd-tmpfiles --clean 2>/dev/null || true
+    if [[ ! -d "${USER_TRASH}" ]]; then
+        gum log --level warn "Trash directory not found — skipping"
+        record trash "Trash" 0 0 SKIPPED "Dir not found"
+        return 0
     fi
 
-    # 2. Controlled safe prune of stale non-locked files older than 1 day
-    # Explicit exclusion of active runtime files
-    local skipped_count=0
-    local removed_count=0
+    local before; before=$(get_size "${USER_TRASH}" 0)
+    local item_count; item_count=$(find "${USER_TRASH}" -mindepth 1 2>/dev/null | wc -l)
 
+    if (( item_count == 0 )); then
+        gum log --level info "Trash is already empty"
+        record trash "Trash" "${before}" "${before}" SKIPPED "Already empty"
+        return 0
+    fi
+
+    # Show Trash contents preview
+    echo
+    gum style --foreground "#585b70" "Contents (first 10 items):"
+    if [[ -d "${USER_TRASH}/files" ]]; then
+        find "${USER_TRASH}/files" -mindepth 1 -maxdepth 1 2>/dev/null | head -10 | \
+            sed 's|.*/||' | while read -r name; do printf "  • %s\n" "${name}"; done
+    fi
+    if (( item_count > 10 )); then
+        printf "  ... and %d more item(s)\n" $(( item_count - 10 ))
+    fi
+
+    # Always confirm — permanent deletion
+    echo
+    gum style \
+        --border normal \
+        --border-foreground "#f38ba8" \
+        --padding "1 2" \
+        "$(gum style --foreground '#f38ba8' --bold '⚠  Permanent Deletion — Cannot Be Undone')" \
+        "" \
+        "  ${item_count} item(s)  ·  $(fmt_bytes "${before}")" \
+        "  Files will be permanently deleted and cannot be recovered."
+    echo
+
+    if ! gum confirm --default "Permanently empty Trash?"; then
+        gum log --level info "Trash cleanup skipped"
+        record trash "Trash" "${before}" "${before}" SKIPPED "Declined"
+        return 0
+    fi
+
+    rm -rf "${USER_TRASH:?}"/* 2>/dev/null || true
+    mkdir -p "${USER_TRASH}/files" "${USER_TRASH}/info" 2>/dev/null || true
+
+    local after; after=$(get_size "${USER_TRASH}" 0)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "After: $(fmt_bytes "${after}")  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record trash "Trash" "${before}" "${after}" SUCCESS ""
+}
+
+# ── Stage 5: /tmp ─────────────────────────────────────────────────────────────
+stage_tmp() {
+    section 5 10 "/tmp Cleanup"
+    local before; before=$(get_size "/tmp" 1)
+    gum log --level info "Path: /tmp  ·  Before: $(fmt_bytes "${before}")  ·  Pruning files older than 1 day"
+    gum log --level debug "Preserved: sockets, X11/Wayland sockets, systemd-private dirs, active locks"
+
+    if command -v systemd-tmpfiles &>/dev/null; then
+        gum spin --spinner minidot --title "systemd-tmpfiles --clean..." -- \
+            bash -c "sudo systemd-tmpfiles --clean 2>/dev/null; true"
+    fi
+
+    local removed=0 skipped=0
     while IFS= read -r -d $'\0' item; do
-        local bname
-        bname=$(basename "$item")
+        local bname; bname=$(basename "${item}")
 
-        # Strict protection pattern list
-        case "$bname" in
-            .X11-unix|.ICE-unix|.font-unix|.XIM-unix|.Test-unix)
-                skipped_count=$(( skipped_count + 1 ))
-                continue
-                ;;
-            .X*-lock|sddm-auth-*|ssh-*|gpg-*|pipewire*|wayland-*)
-                skipped_count=$(( skipped_count + 1 ))
-                continue
-                ;;
-            systemd-private-*)
-                skipped_count=$(( skipped_count + 1 ))
+        # Strict exclusion list — active runtime artifacts
+        case "${bname}" in
+            .X11-unix|.ICE-unix|.font-unix|.XIM-unix|.Test-unix|\
+            .X*-lock|sddm-auth-*|ssh-*|gpg-*|pipewire*|wayland-*|systemd-private-*)
+                skipped=$(( skipped + 1 ))
                 continue
                 ;;
         esac
 
-        # Skip active sockets and pipes
-        if [[ -S "$item" || -p "$item" ]]; then
-            skipped_count=$(( skipped_count + 1 ))
+        # Skip sockets and named pipes (active IPC)
+        if [[ -S "${item}" || -p "${item}" ]]; then
+            skipped=$(( skipped + 1 ))
             continue
         fi
 
-        # Attempt safe removal of files modified more than 1 day ago
-        if sudo rm -rf "$item" 2>/dev/null; then
-            removed_count=$(( removed_count + 1 ))
+        if sudo rm -rf "${item}" 2>/dev/null; then
+            removed=$(( removed + 1 ))
         else
-            skipped_count=$(( skipped_count + 1 ))
+            skipped=$(( skipped + 1 ))
         fi
-    done < <(sudo find "$TMP_DIR" -mindepth 1 -maxdepth 1 -mtime +1 -print0 2>/dev/null)
+    done < <(sudo find /tmp -mindepth 1 -maxdepth 1 -mtime +1 -print0 2>/dev/null)
 
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$TMP_DIR" 1)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-    print_info "Summary: Removed ${removed_count} stale items, preserved/skipped ${skipped_count} active items."
-
-    if (( skipped_count > 0 && removed_count > 0 )); then
-        record_stage_result "tmp" "/tmp" "$before_bytes" "$after_bytes" "PARTIAL" "Preserved ${skipped_count} active/locked runtime files"
-    else
-        record_stage_result "tmp" "/tmp" "$before_bytes" "$after_bytes" "SUCCESS" ""
-    fi
+    local after; after=$(get_size "/tmp" 1)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "Removed ${removed} stale item(s)  ·  Preserved ${skipped} active item(s)  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record tmp "/tmp" "${before}" "${after}" SUCCESS ""
 }
 
-# Stage 7: /var/tmp
-do_clean_var_tmp() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 6: /var/tmp ─────────────────────────────────────────────────────────
+stage_var_tmp() {
+    section 6 10 "/var/tmp Cleanup"
+    local before; before=$(get_size "/var/tmp" 1)
+    gum log --level info "Path: /var/tmp  ·  Before: $(fmt_bytes "${before}")  ·  Pruning files older than 7 days"
+    gum log --level debug "/var/tmp persists across reboots by design; systemd-private dirs preserved"
 
-    print_section "${prefix}Cleaning /var/tmp"
-    print_info "Target: ${C_BOLD}${VAR_TMP_DIR}${C_RESET}"
-
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$VAR_TMP_DIR" 1)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    print_info "/var/tmp can intentionally persist across reboots."
-    print_info "Running controlled systemd-tmpfiles and stale file maintenance..."
-
-    if command -v systemd-tmpfiles >/dev/null 2>&1; then
-        run_with_spinner "Running systemd-tmpfiles --clean for /var/tmp" sudo systemd-tmpfiles --clean 2>/dev/null || true
+    if command -v systemd-tmpfiles &>/dev/null; then
+        gum spin --spinner minidot --title "systemd-tmpfiles --clean..." -- \
+            bash -c "sudo systemd-tmpfiles --clean 2>/dev/null; true"
     fi
 
-    # Prune stale files older than 7 days in /var/tmp
-    local skipped_count=0
-    local removed_count=0
-
+    local removed=0 skipped=0
     while IFS= read -r -d $'\0' item; do
-        local bname
-        bname=$(basename "$item")
-        if [[ "$bname" =~ ^systemd-private- ]]; then
-            skipped_count=$(( skipped_count + 1 ))
+        local bname; bname=$(basename "${item}")
+        if [[ "${bname}" =~ ^systemd-private- ]]; then
+            skipped=$(( skipped + 1 ))
             continue
         fi
-
-        if sudo rm -rf "$item" 2>/dev/null; then
-            removed_count=$(( removed_count + 1 ))
+        if sudo rm -rf "${item}" 2>/dev/null; then
+            removed=$(( removed + 1 ))
         else
-            skipped_count=$(( skipped_count + 1 ))
+            skipped=$(( skipped + 1 ))
         fi
-    done < <(sudo find "$VAR_TMP_DIR" -mindepth 1 -maxdepth 1 -mtime +7 -print0 2>/dev/null)
+    done < <(sudo find /var/tmp -mindepth 1 -maxdepth 1 -mtime +7 -print0 2>/dev/null)
 
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$VAR_TMP_DIR" 1)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    record_stage_result "vartmp" "/var/tmp" "$before_bytes" "$after_bytes" "SUCCESS" ""
+    local after; after=$(get_size "/var/tmp" 1)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "Removed ${removed}  ·  Preserved ${skipped}  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record vartmp "/var/tmp" "${before}" "${after}" SUCCESS ""
 }
 
-# Stage 8: Traditional /var/log
-do_clean_traditional_logs() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 7: Traditional /var/log Archives ────────────────────────────────────
+stage_trad_logs() {
+    section 7 10 "Log Archives (/var/log rotated)"
+    local before; before=$(get_size "${VAR_LOG}" 1)
+    gum log --level info "/var/log total before: $(fmt_bytes "${before}")"
+    gum log --level debug "Preserved: /var/log/journal, pacman.log, wtmp, btmp, lastlog, audit/"
 
-    print_section "${prefix}Cleaning Traditional System Logs"
-    print_info "Target: ${C_BOLD}${VAR_LOG_DIR}${C_RESET} (Archived / Rotated logs)"
+    local rotated=()
+    while IFS= read -r -d $'\0' f; do
+        [[ "${f}" =~ ^/var/log/journal ]] && continue
+        rotated+=("${f}")
+    done < <(sudo find "${VAR_LOG}" -type f \
+        \( -name "*.gz" -o -name "*.old" -o -name "*.1" -o -name "*.log.1" \
+           -o -name "*.xz" -o -name "*.zst" -o -name "*.[0-9]" \) \
+        -print0 2>/dev/null)
 
-    local before_bytes
-    before_bytes=$(get_path_size_bytes "$VAR_LOG_DIR" 1)
-    echo -e "  Before (Total /var/log): ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
+    gum log --level info "Found ${#rotated[@]} rotated archive(s)"
 
-    print_info "Safety guards active:"
-    print_info "  • /var/log/journal is EXCLUDED (managed separately via journalctl)"
-    print_info "  • pacman.log, wtmp, btmp, lastlog, audit logs are PRESERVED"
-    print_info "  • Only rotated/archived files (*.gz, *.1, *.old, *.xz, *.zst) and stale /var/log/old/ are targeted"
+    local failed=0
+    for f in "${rotated[@]}"; do
+        sudo rm -f "${f}" 2>/dev/null || failed=$(( failed + 1 ))
+    done
 
-    # Find rotated files
-    local rotated_files=()
-    while IFS= read -r -d $'\0' file; do
-        # Ensure not in journal directory
-        if [[ "$file" =~ ^/var/log/journal ]]; then
-            continue
-        fi
-        rotated_files+=("$file")
-    done < <(sudo find "$VAR_LOG_DIR" -type f \( -name "*.gz" -o -name "*.old" -o -name "*.1" -o -name "*.log.1" -o -name "*.xz" -o -name "*.zst" -o -name "*.[0-9]" \) -print0 2>/dev/null)
-
-    print_info "Found ${#rotated_files[@]} rotated log archives."
-
-    if (( ${#rotated_files[@]} > 0 )); then
-        print_clean "Removing rotated log archives..."
-        for rfile in "${rotated_files[@]}"; do
-            sudo rm -f "$rfile" 2>/dev/null || true
-        done
-    fi
-
-    # Clean /var/log/old if it exists
+    # Clean /var/log/old if present
     if [[ -d "/var/log/old" ]]; then
-        print_clean "Cleaning /var/log/old directory contents..."
         sudo find "/var/log/old" -mindepth 1 -type f -delete 2>/dev/null || true
     fi
 
-    local after_bytes
-    after_bytes=$(get_path_size_bytes "$VAR_LOG_DIR" 1)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
+    local after; after=$(get_size "${VAR_LOG}" 1)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "Removed ${#rotated[@]} archive(s)  ·  Reclaimed: $(fmt_bytes "${freed}")"
 
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    print_done "Traditional log rotation archives cleaned."
-    record_stage_result "tradlogs" "Traditional Logs" "$before_bytes" "$after_bytes" "SUCCESS" ""
-}
-
-# Stage 9: systemd Journal
-do_clean_journal() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
-
-    print_section "${prefix}Cleaning systemd Journal"
-    print_info "Using native ${C_BOLD}journalctl --vacuum-*${C_RESET} commands."
-
-    local before_bytes
-    before_bytes=$(get_journal_size_bytes)
-    echo -e "  Before: ${C_BOLD}$(format_bytes "$before_bytes")${C_RESET}"
-
-    echo ""
-    echo "Select Journal Vacuum Policy:"
-    echo -e "  ${C_BOLD}1)${C_RESET} Conservative : Retain last 14 days / vacuum to 200M (Recommended)"
-    echo -e "  ${C_BOLD}2)${C_RESET} Moderate     : Retain last 7 days / vacuum to 100M"
-    echo -e "  ${C_BOLD}3)${C_RESET} Aggressive   : Vacuum size to 1M (Minimal history retained)"
-    echo -e "  ${C_BOLD}4)${C_RESET} Skip journal vacuum"
-
-    local choice="1"
-    if [[ "$BATCH_CONFIRM_ALL" -eq 1 ]]; then
-        echo -e "${C_DIM}Batch mode: Selecting Option 1 (Conservative)${C_RESET}"
-        choice="1"
+    if (( failed > 0 )); then
+        record tradlogs "Log Archives" "${before}" "${after}" PARTIAL "${failed} file(s) could not be removed"
     else
-        read -rp "Select [1-4] (default 1): " user_choice
-        choice="${user_choice:-1}"
+        record tradlogs "Log Archives" "${before}" "${after}" SUCCESS ""
     fi
-
-    case "$choice" in
-        1)
-            print_clean "Running conservative vacuum: --vacuum-time=14d --vacuum-size=200M..."
-            sudo journalctl --vacuum-time=14d >/dev/null 2>&1 || true
-            sudo journalctl --vacuum-size=200M >/dev/null 2>&1 || true
-            ;;
-        2)
-            print_clean "Running moderate vacuum: --vacuum-time=7d --vacuum-size=100M..."
-            sudo journalctl --vacuum-time=7d >/dev/null 2>&1 || true
-            sudo journalctl --vacuum-size=100M >/dev/null 2>&1 || true
-            ;;
-        3)
-            print_warn "Aggressive vacuum selected. Very little historical log data will remain."
-            if prompt_confirm "Confirm aggressive journal vacuum (--vacuum-size=1M)?" "N"; then
-                print_clean "Running aggressive vacuum: --vacuum-size=1M..."
-                sudo journalctl --vacuum-size=1M >/dev/null 2>&1 || true
-            else
-                print_skip "Aggressive vacuum cancelled."
-                record_stage_result "journal" "systemd Journal" "$before_bytes" "$before_bytes" "SKIPPED" "Cancelled by user"
-                return 0
-            fi
-            ;;
-        4)
-            print_skip "Journal vacuum skipped."
-            record_stage_result "journal" "systemd Journal" "$before_bytes" "$before_bytes" "SKIPPED" "Skipped by user"
-            return 0
-            ;;
-        *)
-            print_warn "Invalid selection. Skipping journal vacuum."
-            record_stage_result "journal" "systemd Journal" "$before_bytes" "$before_bytes" "SKIPPED" "Invalid input"
-            return 0
-            ;;
-    esac
-
-    local after_bytes
-    after_bytes=$(get_journal_size_bytes)
-    local reclaimed=0
-    (( before_bytes > after_bytes )) && reclaimed=$(( before_bytes - after_bytes ))
-
-    echo -e "  After:     ${C_BOLD}$(format_bytes "$after_bytes")${C_RESET}"
-    echo -e "  Reclaimed: ${C_GREEN}${C_BOLD}$(format_bytes "$reclaimed")${C_RESET}"
-
-    print_done "Journal vacuum completed."
-    record_stage_result "journal" "systemd Journal" "$before_bytes" "$after_bytes" "SUCCESS" ""
 }
 
-# Stage 10: Snapper Snapshot Review & Cleanup
-do_clean_snapper() {
-    local stage_num="${1:-}"
-    local prefix=""
-    [[ -n "$stage_num" ]] && prefix="[ $stage_num ] "
+# ── Stage 8: systemd Journal Vacuum (Aggressive) ──────────────────────────────
+stage_journal() {
+    section 8 10 "systemd Journal Vacuum"
+    local before; before=$(get_journal_size)
+    gum log --level info "Before: $(fmt_bytes "${before}")  ·  Policy: aggressive --vacuum-size=1M"
 
-    print_section "${prefix}Review & Clean Snapper Snapshots"
+    gum spin --spinner dot --title "journalctl --vacuum-size=1M..." -- \
+        bash -c "sudo journalctl --vacuum-size=1M > /dev/null 2>&1; true"
 
-    if ! command -v snapper >/dev/null 2>&1; then
-        print_skip "Snapper is not installed."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "Snapper not installed"
+    local after; after=$(get_journal_size)
+    local freed=0; (( before > after )) && freed=$(( before - after ))
+    gum log --level info "After: $(fmt_bytes "${after}")  ·  Reclaimed: $(fmt_bytes "${freed}")"
+    record journal "Journal" "${before}" "${after}" SUCCESS ""
+}
+
+# ── Stage 9: Orphan Package Removal ──────────────────────────────────────────
+stage_orphans() {
+    section 9 10 "Orphan Package Removal"
+
+    local orphan_list; orphan_list=$(pacman -Qdtq 2>/dev/null) || orphan_list=""
+
+    if [[ -z "${orphan_list}" ]]; then
+        gum log --level info "No orphan packages found"
+        record orphans "Orphan Pkgs" 0 0 SKIPPED "None found"
         return 0
     fi
 
-    local configs
-    configs=$(snapper list-configs 2>/dev/null | awk 'NR>2 {print $1}')
-    if [[ -z "$configs" ]]; then
-        print_skip "No Snapper configurations found."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "No Snapper config"
+    local count; count=$(echo "${orphan_list}" | wc -l)
+    gum log --level info "Found ${count} orphan package(s):"
+    echo "${orphan_list}" | while read -r pkg; do printf "  • %s\n" "${pkg}"; done
+    echo
+
+    # Write packages to temp file; xargs passes them safely to pacman
+    local pkg_tmp; pkg_tmp=$(mktemp /tmp/cleanup-orphans.XXXXXX)
+    echo "${orphan_list}" > "${pkg_tmp}"
+
+    if gum spin --spinner dot --title "Removing ${count} orphan(s) with pacman -Rns..." -- \
+            bash -c "xargs sudo pacman -Rns --noconfirm < '${pkg_tmp}' 2>/dev/null"; then
+        gum log --level info "Removed ${count} orphan package(s)"
+        record orphans "Orphan Pkgs" 0 0 SUCCESS "Removed ${count} packages"
+    else
+        gum log --level warn "Some orphans could not be removed (may have active dependents)"
+        record orphans "Orphan Pkgs" 0 0 PARTIAL "Partial removal — some packages have dependents"
+    fi
+    rm -f "${pkg_tmp}"
+}
+
+# ── Stage 10: Snapper Snapshot Cleanup ───────────────────────────────────────
+stage_snapper() {
+    section 10 10 "Snapper Snapshot Cleanup"
+
+    if ! command -v snapper &>/dev/null; then
+        gum log --level warn "Snapper not installed — skipping"
+        record snapper "Snapper" 0 0 SKIPPED "Not installed"
         return 0
     fi
 
+    local cfgs; cfgs=$(snapper list-configs 2>/dev/null | awk 'NR>2 {print $1}') || cfgs=""
+    if [[ -z "${cfgs}" ]]; then
+        gum log --level warn "No Snapper configurations found — skipping"
+        record snapper "Snapper" 0 0 SKIPPED "No config"
+        return 0
+    fi
+
+    # Prefer 'root' config, fall back to first available
     local cfg="root"
-    if ! echo "$configs" | grep -q "^root$"; then
-        cfg=$(echo "$configs" | head -n 1)
+    if ! echo "${cfgs}" | grep -q "^root$"; then
+        cfg=$(echo "${cfgs}" | head -n 1)
     fi
+    gum log --level info "Config: ${cfg}"
 
-    print_info "Querying Snapper snapshots for config '${C_BOLD}${cfg}${C_RESET}'..."
     local raw_list
-    raw_list=$(sudo snapper -c "$cfg" list 2>/dev/null)
-
-    if [[ -z "$raw_list" ]]; then
-        print_warn "Could not read snapshots or permission error."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "FAILED" "Failed to query snapper list"
+    if ! raw_list=$(sudo snapper -c "${cfg}" list 2>/dev/null); then
+        gum log --level error "Failed to query snapper list for '${cfg}'"
+        record snapper "Snapper" 0 0 FAILED "snapper list error"
         return 0
     fi
 
-    # Parse snapshots
-    echo ""
-    echo -e "${C_BOLD}Current Snapper Snapshots (${cfg}):${C_RESET}"
-    echo "$raw_list" | head -n 2
-    echo -e "${C_GRAY}────────────────────────────────────────────────────────────────────${C_RESET}"
+    echo
+    gum style --foreground "#89b4fa" --bold "Snapshots — ${cfg}:"
+    echo
 
     local removable_ids=()
-    local snap_lines
-    snap_lines=$(echo "$raw_list" | awk 'NR>2')
-
     while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        local id
-        id=$(echo "$line" | awk '{print $1}' | tr -d '#' | tr -d '+')
-
-        if [[ "$id" == "0" ]]; then
-            echo -e "${line}  ${C_GREEN}${C_BOLD}[PROTECTED - CURRENT SYSTEM]${C_RESET}"
-        else
-            echo "$line"
-            if [[ "$id" =~ ^[0-9]+$ ]]; then
-                removable_ids+=("$id")
-            fi
+        [[ -z "${line}" ]] && continue
+        local id; id=$(awk '{print $1}' <<< "${line}" | tr -d '+#')
+        if [[ "${id}" == "0" ]]; then
+            printf "  %s  \033[1;32m[PROTECTED — current system]\033[0m\n" "${line}"
+        elif [[ "${id}" =~ ^[0-9]+$ ]]; then
+            printf "  %s\n" "${line}"
+            removable_ids+=("${id}")
         fi
-    done <<< "$snap_lines"
+    done <<< "$(echo "${raw_list}" | awk 'NR>2')"
 
-    echo ""
+    echo
     if (( ${#removable_ids[@]} == 0 )); then
-        print_skip "No removable Snapper snapshots found (only snapshot 0 exists)."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "Only protected snapshot 0 present"
+        gum log --level info "No removable snapshots (only snapshot 0 is present)"
+        record snapper "Snapper" 0 0 SKIPPED "No removable snapshots"
         return 0
     fi
 
-    print_info "Removable snapshots available: ${C_BOLD}${removable_ids[*]}${C_RESET}"
-    print_warn "Snapshot 0 is strictly protected and will NEVER be deleted."
+    gum log --level info "Removable snapshot IDs: ${removable_ids[*]}"
+    gum log --level warn "Snapshot 0 (current system) is NEVER deleted"
 
-    echo ""
-    echo "Options:"
-    echo "  • Enter snapshot numbers to delete (e.g. 3, 5 or 2-4)"
-    echo "  • Type 'all' to delete all removable non-zero snapshots"
-    echo "  • Type 'skip' or press Enter to skip snapshot deletion"
-    echo -ne "${C_YELLOW}Your selection:${C_RESET} "
+    # Always confirm — irreversible at Btrfs level
+    echo
+    gum style \
+        --border normal \
+        --border-foreground "#f38ba8" \
+        --padding "1 2" \
+        "$(gum style --foreground '#f38ba8' --bold '⚠  Irreversible Btrfs Snapshot Deletion')" \
+        "" \
+        "  Will delete ${#removable_ids[@]} snapshot(s): ${removable_ids[*]}" \
+        "  Snapshot 0 (current system) is always protected." \
+        "  limine-snapper-sync will run after deletion to sync boot entries."
+    echo
 
-    local selection
-    if [[ "$BATCH_CONFIRM_ALL" -eq 1 ]]; then
-        echo -e "${C_DIM}Batch mode: Snapper snapshot deletion requires manual selection. Skipping.${C_RESET}"
-        selection="skip"
-    else
-        read -r selection
-    fi
-    selection="${selection:-skip}"
-
-    if [[ "${selection,,}" == "skip" || "${selection,,}" == "none" ]]; then
-        print_skip "Snapper snapshot cleanup skipped by user."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "Skipped by user"
+    if ! gum confirm "Delete all ${#removable_ids[@]} removable snapshot(s)?"; then
+        gum log --level info "Snapshot deletion cancelled"
+        record snapper "Snapper" 0 0 SKIPPED "Declined"
         return 0
     fi
 
-    local target_ids=()
-    if [[ "${selection,,}" == "all" ]]; then
-        target_ids=("${removable_ids[@]}")
-    else
-        # Parse ranges (e.g., 2-5) and comma-separated IDs (e.g. 2, 4, 6)
-        IFS=',' read -ra tokens <<< "$selection"
-        for tok in "${tokens[@]}"; do
-            tok=$(echo "$tok" | tr -d ' ')
-            if [[ "$tok" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-                local start="${BASH_REMATCH[1]}"
-                local end="${BASH_REMATCH[2]}"
-                for (( s=start; s<=end; s++ )); do
-                    target_ids+=("$s")
-                done
-            elif [[ "$tok" =~ ^[0-9]+$ ]]; then
-                target_ids+=("$tok")
-            fi
-        done
-    fi
-
-    # Filter & validate target IDs
-    local valid_targets=()
-    for tid in "${target_ids[@]}"; do
-        if [[ "$tid" == "0" ]]; then
-            print_error "Rejected attempt to delete snapshot 0. Snapshot 0 is protected."
-            continue
-        fi
-        # Verify it exists in removable_ids
-        local found=0
-        for rid in "${removable_ids[@]}"; do
-            if [[ "$rid" == "$tid" ]]; then
-                found=1
-                break
-            fi
-        done
-
-        if [[ $found -eq 1 ]]; then
-            valid_targets+=("$tid")
+    local del_ok=0 del_fail=0
+    for sid in "${removable_ids[@]}"; do
+        if gum spin --spinner dot --title "Deleting snapshot #${sid}..." -- \
+                bash -c "sudo snapper -c '${cfg}' delete '${sid}' 2>/dev/null"; then
+            gum log --level info "Deleted snapshot #${sid}"
+            del_ok=$(( del_ok + 1 ))
         else
-            print_warn "Snapshot $tid is not in the list of removable snapshots. Skipping."
-        fi
-    done
-
-    if (( ${#valid_targets[@]} == 0 )); then
-        print_skip "No valid non-zero snapshots selected."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "No valid snapshots chosen"
-        return 0
-    fi
-
-    # Deduplicate targets
-    local unique_targets
-    unique_targets=$(printf "%s\n" "${valid_targets[@]}" | sort -n -u | tr '\n' ' ')
-
-    print_warn "You are about to delete Snapper snapshot(s): ${C_BOLD}${unique_targets}${C_RESET}"
-    if ! prompt_confirm "Proceed with deleting these snapshot(s)?" "N"; then
-        print_skip "Snapshot deletion aborted by user."
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SKIPPED" "Aborted by user"
-        return 0
-    fi
-
-    local del_success=0
-    local del_fail=0
-    for sid in $unique_targets; do
-        print_clean "Deleting Snapper snapshot #${sid}..."
-        if sudo snapper -c "$cfg" delete "$sid" 2>/dev/null; then
-            print_done "Snapshot #${sid} deleted."
-            del_success=$(( del_success + 1 ))
-        else
-            print_error "Failed to delete snapshot #${sid}."
+            gum log --level error "Failed to delete snapshot #${sid}"
             del_fail=$(( del_fail + 1 ))
         fi
     done
 
+    # Sync bootloader snapshot entries
+    if command -v limine-snapper-sync &>/dev/null; then
+        gum spin --spinner dot --title "Running limine-snapper-sync..." -- \
+            bash -c "sudo limine-snapper-sync 2>/dev/null; true"
+        gum log --level info "limine-snapper-sync completed"
+    fi
+
     if (( del_fail > 0 )); then
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "PARTIAL" "Deleted ${del_success}, failed ${del_fail}"
+        record snapper "Snapper" 0 0 PARTIAL "Deleted ${del_ok}, failed ${del_fail}"
     else
-        record_stage_result "snapper" "Snapper Snapshots" 0 0 "SUCCESS" "Deleted ${del_success} snapshots"
+        record snapper "Snapper" 0 0 SUCCESS "Deleted ${del_ok} snapshot(s)"
     fi
 }
 
-# ------------------------------------------------------------------------------
-# 8. Full Cleanup Flow
-# ------------------------------------------------------------------------------
-do_full_cleanup() {
-    print_header "Option 11: Run Full System Cleanup Sequence"
+# ── Phase 3: Summary ──────────────────────────────────────────────────────────
+phase_summary() {
+    echo
+    gum style \
+        --border rounded \
+        --border-foreground "#a6e3a1" \
+        --padding "0 3" \
+        --bold \
+        "  Cleanup Complete"
+    echo
 
-    echo "Select execution mode:"
-    echo -e "  ${C_BOLD}1)${C_RESET} Confirm each stage (Interactive step-by-step)"
-    echo -e "  ${C_BOLD}2)${C_RESET} Confirm all         (Batch mode with standard defaults)"
-    echo -e "  ${C_BOLD}3)${C_RESET} Cancel"
-    read -rp "Select [1-3] (default 1): " mode_choice
-    mode_choice="${mode_choice:-1}"
+    local total_b=0 total_a=0 total_freed=0
+    local cnt_ok=0 cnt_partial=0 cnt_skipped=0 cnt_failed=0
 
-    case "$mode_choice" in
-        1)
-            BATCH_CONFIRM_ALL=0
-            ;;
-        2)
-            BATCH_CONFIRM_ALL=1
-            print_info "Batch mode enabled: non-destructive prompts will be pre-approved."
-            ;;
-        3)
-            echo "Full cleanup cancelled."
-            return 0
-            ;;
-        *)
-            echo "Invalid option. Defaulting to interactive mode."
-            BATCH_CONFIRM_ALL=0
-            ;;
-    esac
+    {
+        printf "Module,Before,After,Reclaimed,Status\n"
+        for k in "${SK[@]}"; do
+            local b="${SB[${k}]}" a="${SA[${k}]}" r="${SF[${k}]}" st="${SS[${k}]}"
+            total_b=$(( total_b + b ))
+            total_a=$(( total_a + a ))
+            total_freed=$(( total_freed + r ))
 
-    # Initial measurements
-    print_info "Capturing initial system state..."
-    show_system_overview
+            local icon
+            case "${st}" in
+                SUCCESS) icon="✓"; cnt_ok=$(( cnt_ok + 1 ))           ;;
+                PARTIAL) icon="~"; cnt_partial=$(( cnt_partial + 1 )) ;;
+                SKIPPED) icon="—"; cnt_skipped=$(( cnt_skipped + 1 )) ;;
+                FAILED)  icon="✗"; cnt_failed=$(( cnt_failed + 1 ))   ;;
+                *)       icon="?"                                       ;;
+            esac
 
-    # Sequential execution:
-    # 1. Coredumps
-    # 2. Pacman cache
-    # 3. User cache
-    # 4. Trash
-    # 5. /tmp
-    # 6. /var/tmp
-    # 7. Traditional /var/log
-    # 8. systemd journal
-    # 9. Snapper snapshots
+            printf "%s,%s,%s,%s,%s %s\n" \
+                "${SL[${k}]}" \
+                "$(fmt_bytes "${b}")" \
+                "$(fmt_bytes "${a}")" \
+                "$(fmt_bytes "${r}")" \
+                "${icon}" "${st}"
+        done
+        printf "TOTAL,$(fmt_bytes "${total_b}"),$(fmt_bytes "${total_a}"),$(fmt_bytes "${total_freed}"),\n"
+    } | gum table --print --widths "14,12,12,12,14"
 
-    do_clean_coredumps "1/9"
-    do_clean_pacman_cache "2/9"
-    do_clean_user_cache "3/9"
-    do_clean_trash "4/9"
-    do_clean_tmp "5/9"
-    do_clean_var_tmp "6/9"
-    do_clean_traditional_logs "7/9"
-    do_clean_journal "8/9"
-    do_clean_snapper "9/9"
+    echo
+    gum style \
+        --foreground "#a6e3a1" \
+        --bold \
+        "  Total reclaimed: $(fmt_bytes "${total_freed}")"
+    printf "  ✓ %d success  ·  ~ %d partial  ·  — %d skipped  ·  ✗ %d failed\n" \
+        "${cnt_ok}" "${cnt_partial}" "${cnt_skipped}" "${cnt_failed}"
 
-    # Reset batch flag
-    BATCH_CONFIRM_ALL=0
-
-    # Render summary
-    show_final_summary
-}
-
-# ------------------------------------------------------------------------------
-# 9. Final Summary Report & Accounting
-# ------------------------------------------------------------------------------
-show_final_summary() {
-    print_header "System Cleanup Final Report"
-
-    if (( ${#STAGE_KEYS[@]} == 0 )); then
-        print_info "No cleanup operations were performed during this session."
-        return
-    fi
-
-    local total_before=0
-    local total_after=0
-    local total_reclaimed=0
-    local count_success=0
-    local count_partial=0
-    local count_skipped=0
-    local count_failed=0
-
-    echo -e "${C_BOLD}┌──────────────────────┬────────────┬────────────┬────────────┬───────────┐${C_RESET}"
-    echo -e "${C_BOLD}│ Category             │ Before     │ After      │ Reclaimed  │ Status    │${C_RESET}"
-    echo -e "${C_BOLD}├──────────────────────┼────────────┼────────────┼────────────┼───────────┤${C_RESET}"
-
-    for k in "${STAGE_KEYS[@]}"; do
-        local lbl="${STAGE_LABELS[$k]}"
-        local b="${STAGE_BEFORE[$k]}"
-        local a="${STAGE_AFTER[$k]}"
-        local r="${STAGE_RECLAIMED[$k]}"
-        local st="${STAGE_STATUS[$k]}"
-
-        total_before=$(( total_before + b ))
-        total_after=$(( total_after + a ))
-        total_reclaimed=$(( total_reclaimed + r ))
-
-        local color_code=""
-        case "$st" in
-            SUCCESS)
-                color_code="${C_GREEN}"
-                count_success=$(( count_success + 1 ))
-                ;;
-            PARTIAL)
-                color_code="${C_YELLOW}"
-                count_partial=$(( count_partial + 1 ))
-                ;;
-            SKIPPED)
-                color_code="${C_GRAY}"
-                count_skipped=$(( count_skipped + 1 ))
-                ;;
-            FAILED)
-                color_code="${C_RED}"
-                count_failed=$(( count_failed + 1 ))
-                ;;
-        esac
-
-        printf "│ %-20s │ %10s │ %10s │ %10s │ %b%-9s%b │\n" \
-            "$lbl" "$(format_bytes "$b")" "$(format_bytes "$a")" "$(format_bytes "$r")" "$color_code" "$st" "$C_RESET"
-    done
-
-    echo -e "${C_BOLD}├──────────────────────┼────────────┼────────────┼────────────┼───────────┤${C_RESET}"
-    printf "│ %-20s │ %10s │ %10s │ ${C_GREEN}%10s${C_RESET} │ %-9s │\n" \
-        "TOTAL ACROSS STAGES" "$(format_bytes "$total_before")" "$(format_bytes "$total_after")" "$(format_bytes "$total_reclaimed")" ""
-    echo -e "${C_BOLD}└──────────────────────┴────────────┴────────────┴────────────┴───────────┘${C_RESET}"
-
-    echo ""
-    echo -e "${C_BOLD}Operation Statistics:${C_RESET}"
-    printf "  • ${C_GREEN}Successful${C_RESET} : %d\n" "$count_success"
-    printf "  • ${C_YELLOW}Partial${C_RESET}    : %d\n" "$count_partial"
-    printf "  • ${C_GRAY}Skipped${C_RESET}    : %d\n" "$count_skipped"
-    printf "  • ${C_RED}Failed${C_RESET}     : %d\n" "$count_failed"
-
-    # Print issues if any
-    local has_issues=0
-    for k in "${STAGE_KEYS[@]}"; do
-        local st="${STAGE_STATUS[$k]}"
-        local notes="${STAGE_NOTES[$k]}"
-        if [[ "$st" == "PARTIAL" || "$st" == "FAILED" ]]; then
-            if [[ $has_issues -eq 0 ]]; then
-                echo ""
-                echo -e "${C_BOLD}Detailed Notices & Warnings:${C_RESET}"
-                has_issues=1
+    # Print notes for partial/failed stages
+    local has_notes=0
+    for k in "${SK[@]}"; do
+        local st="${SS[${k}]}" note="${SN[${k}]:-}"
+        if [[ ("${st}" == "PARTIAL" || "${st}" == "FAILED") && -n "${note}" ]]; then
+            if (( has_notes == 0 )); then
+                echo
+                gum style --foreground "#f9e2af" --bold "Notices:"
+                has_notes=1
             fi
-            echo -e "  [${STAGE_LABELS[$k]}]: ${notes}"
+            printf "  [%s]  %s\n" "${SL[${k}]}" "${note}"
         fi
     done
+
+    echo
+    gum spin --spinner globe --title "Done! Press any key to close..." -- \
+        bash -c 'read -n 1 -s'
 }
 
-# ------------------------------------------------------------------------------
-# 10. Exit & BleachBit Handoff
-# ------------------------------------------------------------------------------
-handle_exit_and_bleachbit() {
-    print_section "Exit & Application Handoff"
+# ── Usage ─────────────────────────────────────────────────────────────────────
+usage() {
+    cat <<EOF
+Usage: ${SCRIPT_NAME} [OPTIONS]
 
-    local bleachbit_bin
-    bleachbit_bin=$(command -v bleachbit 2>/dev/null || true)
+Arch Linux system maintenance — gum-powered TUI
+Reference: ~/dotfiles/TUI_reference.md
 
-    if [[ -n "$bleachbit_bin" ]]; then
-        echo "Options:"
-        echo "  1) Exit to shell"
-        echo "  2) Launch BleachBit GUI (${bleachbit_bin})"
-        echo "  3) Return to main menu"
-        read -rp "Select [1-3] (default 1): " exit_choice
-        exit_choice="${exit_choice:-1}"
-
-        case "$exit_choice" in
-            2)
-                print_info "Launching BleachBit..."
-                nohup "$bleachbit_bin" >/dev/null 2>&1 &
-                print_done "BleachBit launched."
-                exit 0
-                ;;
-            3)
-                return 0
-                ;;
-            *)
-                echo "Exiting system-cleanup. Have a great day!"
-                exit 0
-                ;;
-        esac
-    else
-        echo "Options:"
-        echo "  1) Exit to shell"
-        echo "  2) Return to main menu"
-        read -rp "Select [1-2] (default 1): " exit_choice
-        exit_choice="${exit_choice:-1}"
-
-        if [[ "$exit_choice" == "2" ]]; then
-            return 0
-        else
-            echo "Exiting system-cleanup. Have a great day!"
-            exit 0
-        fi
-    fi
+Options:
+  -h, --help       Show this help
+  -v, --version    Show version (${SCRIPT_VERSION})
+  -d, --dry-run    Inspect cleanup targets only — no changes made
+  -y, --yes        Batch mode — auto-proceed for safe stages
+                   (Pacman, Trash, Snapper always require explicit confirmation)
+EOF
 }
 
-# ------------------------------------------------------------------------------
-# 11. Main Menu Loop
-# ------------------------------------------------------------------------------
-main_menu() {
-    while true; do
-        print_header "Arch Linux Maintenance: System Cleanup"
-
-        echo -e "  ${C_CYAN}1.${C_RESET}  Review cleanup targets (Dry-run inspection)"
-        echo -e "  ${C_CYAN}2.${C_RESET}  Clean coredumps (/var/lib/systemd/coredump)"
-        echo -e "  ${C_CYAN}3.${C_RESET}  Clean pacman package cache (/var/cache/pacman/pkg)"
-        echo -e "  ${C_CYAN}4.${C_RESET}  Clean user cache (~/.cache)"
-        echo -e "  ${C_CYAN}5.${C_RESET}  Clean user trash (~/.local/share/Trash)"
-        echo -e "  ${C_CYAN}6.${C_RESET}  Clean temporary files (/tmp)"
-        echo -e "  ${C_CYAN}7.${C_RESET}  Clean persistent temp (/var/tmp)"
-        echo -e "  ${C_CYAN}8.${C_RESET}  Clean traditional system logs (/var/log rotated)"
-        echo -e "  ${C_CYAN}9.${C_RESET}  Clean systemd journal (journalctl vacuum)"
-        echo -e "  ${C_CYAN}10.${C_RESET} Review/remove Snapper snapshots"
-        echo -e "  ${C_CYAN}11.${C_RESET} ${C_BOLD}Run full cleanup sequence${C_RESET}"
-        echo -e "  ${C_CYAN}12.${C_RESET} Exit"
-        echo ""
-
-        read -rp "Select an option [1-12]: " menu_choice
-        case "$menu_choice" in
-            1)
-                do_review_overview
-                ;;
-            2)
-                do_clean_coredumps
-                ;;
-            3)
-                do_clean_pacman_cache
-                ;;
-            4)
-                do_clean_user_cache
-                ;;
-            5)
-                do_clean_trash
-                ;;
-            6)
-                do_clean_tmp
-                ;;
-            7)
-                do_clean_var_tmp
-                ;;
-            8)
-                do_clean_traditional_logs
-                ;;
-            9)
-                do_clean_journal
-                ;;
-            10)
-                do_clean_snapper
-                ;;
-            11)
-                do_full_cleanup
-                ;;
-            12|q|Q|exit)
-                handle_exit_and_bleachbit
-                ;;
-            *)
-                print_error "Invalid selection. Please choose an option between 1 and 12."
-                ;;
-        esac
-
-        echo ""
-        read -rp "Press Enter to return to menu..." _dummy || true
-    done
-}
-
-# ------------------------------------------------------------------------------
-# 12. Script Entry Point
-# ------------------------------------------------------------------------------
+# ── Entry Point ───────────────────────────────────────────────────────────────
 main() {
-    # Check flags for CLI dry-run or help
-    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-        echo "Usage: ${SCRIPT_NAME} [OPTIONS]"
-        echo ""
-        echo "Interactive Arch Linux maintenance and cleanup script."
-        echo ""
-        echo "Options:"
-        echo "  -h, --help      Display this help menu"
-        echo "  -d, --dry-run   Run target inspection and exit without changes"
-        echo "  -v, --version   Display version information"
-        exit 0
-    elif [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
-        echo "${SCRIPT_NAME} version ${SCRIPT_VERSION}"
-        exit 0
-    fi
+    for arg in "$@"; do
+        case "${arg}" in
+            -h|--help)    usage; exit 0 ;;
+            -v|--version) echo "${SCRIPT_NAME} v${SCRIPT_VERSION}"; exit 0 ;;
+            -d|--dry-run) DRY=1 ;;
+            -y|--yes)     BATCH=1 ;;
+        esac
+    done
 
-    # Initialize single sudo authentication
-    init_sudo_auth
+    # 1. First display System details & Dry-run inspection (unprivileged scan)
+    phase_inspect
 
-    # Handle direct dry-run CLI argument
-    if [[ "${1:-}" == "--dry-run" || "${1:-}" == "-d" ]]; then
-        do_review_overview
+    if (( DRY )); then
+        echo
+        gum log --level info "Dry-run inspection complete — no changes were made."
         exit 0
     fi
 
-    # Display initial overview
-    show_system_overview
+    # 2. Prompt for Sudo Password AFTER the System Information & Dry Run block
+    echo
+    gum style \
+        --border normal \
+        --border-foreground "#89b4fa" \
+        --padding "0 2" \
+        "$(gum style --bold --foreground '#89b4fa' 'Elevated Privileges Required')" \
+        "Authenticating with sudo for system cleanup tasks..."
+    echo
 
-    # Enter interactive menu
-    main_menu
+    init_sudo
+
+    # 3. Affirmation & Navigation Gate (clear highlighted buttons)
+    echo
+    gum style \
+        --border rounded \
+        --border-foreground "#a6e3a1" \
+        --padding "1 2" \
+        "$(gum style --bold --foreground '#cdd6f4' 'Ready to proceed with system cleanup?')" \
+        "" \
+        "  • Safe Stages   : Coredumps, User cache, /tmp, /var/tmp, Log archives, Journal, Orphans" \
+        "  • Prompt Stages : Pacman cache (-Scc), Trash, Snapper snapshots" \
+        "" \
+        "$(gum style --foreground '#585b70' 'Navigation: Use [Left/Right] arrows or [y/n] keys, then press [Enter] to submit.')"
+    echo
+
+    if ! gum confirm \
+        --affirmative "Proceed (Enter)" \
+        --negative "Skip & Exit (n/Esc)" \
+        "Confirm cleanup execution:"; then
+        echo
+        gum log --level info "Cleanup cancelled by user."
+        exit 0
+    fi
+
+    # ── Execute all stages ────────────────────────────────────────────────────
+    stage_coredumps
+    stage_pacman
+    stage_user_cache
+    stage_trash
+    stage_tmp
+    stage_var_tmp
+    stage_trad_logs
+    stage_journal
+    stage_orphans
+    stage_snapper
+
+    phase_summary
 }
 
 main "$@"
