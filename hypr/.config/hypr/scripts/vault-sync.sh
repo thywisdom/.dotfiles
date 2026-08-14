@@ -10,7 +10,6 @@ if [[ ! -d "$VAULT_DIR" ]]; then
   FALLBACK_DIR="$HOME/Projects/Knowledge-base"
   if [[ -d "$FALLBACK_DIR" ]]; then
     VAULT_DIR="$FALLBACK_DIR"
-    notify-send -a "Vault Sync" -u low "Using fallback vault location: $VAULT_DIR"
   else
     notify-send -a "Vault Sync" -u critical "Vault directory not found in either location!"
     exit 1

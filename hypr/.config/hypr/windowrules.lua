@@ -4,9 +4,9 @@
 -- ============================================
 
 -- Spotify & Music → special:music scratchpad (silent = no auto-focus-switch)
-o.window("^(Spotify|spotify)$", { workspace = "special:music silent" })
-o.window("^(brave-music\\.youtube\\.com__-Default|chrome-music\\.youtube\\.com__-Default)$", { workspace = "special:music silent" })
-o.window({ title = "^(Spotify Premium|YouTube Music)$" }, { workspace = "special:music silent" })
+--o.window("^(Spotify|spotify)$", { workspace = "special:music silent" })
+--o.window("^(brave-music\\.youtube\\.com__-Default|chrome-music\\.youtube\\.com__-Default)$", { workspace = "special:music silent" })
+--o.window({ title = "^(Spotify Premium|YouTube Music)$" }, { workspace = "special:music silent" })
 
 -- Custom floating class (any window launched with class "floating")
 o.window("^(floating)$", { float = true, size = "60% 50%", center = true })

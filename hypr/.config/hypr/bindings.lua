@@ -55,8 +55,12 @@ hl.unbind("SUPER + ALT + code:61")
 hl.unbind("SUPER + ALT + RETURN")
 
 -- SUPER + ALT + SHIFT
+hl.unbind("SUPER + ALT + SPACE")
+hl.unbind("SUPER + ALT + SHIFT + F")
 hl.unbind("SUPER + ALT + SHIFT + B")
 hl.unbind("SUPER + ALT + SHIFT + F")
+hl.unbind("SUPER + ALT + K")
+
 
 -- SUPER + CTRL
 hl.unbind("SUPER + CTRL + N")
@@ -70,11 +74,11 @@ o.bind("SUPER + SHIFT + Q", "Kill active window", hl.dsp.window.close())
 o.bind("SUPER + TAB", "Overview", "omarchy-shell shell toggle omarchy-overview")
 
 -- Interface, Bars & Custom Switchers
-o.bind("CTRL + SHIFT + O",         "Projects",              "/home/suman/.config/hypr/scripts/project-open.sh")
-o.bind("CTRL + SHIFT + N",         "Obsidian sync",         "/home/suman/.config/hypr/scripts/obsync.sh")
-o.bind("CTRL + SHIFT + Space",     "Scripts Menu",          "/home/suman/.config/hypr/scripts/unified_menu.sh")
-o.bind("CTRL + SHIFT + K",         "Keyboard RGB",          "/home/suman/.config/hypr/scripts/keyboard-rgb.sh")
-o.bind("SUPER + CTRL + SHIFT + K", "Toggle Keyboard RGB",   "/home/suman/.config/hypr/scripts/keyboard-rgb.sh toggle")
+o.bind("ALT + SPACE", "Apps", "omarchy-menu toggle apps")
+o.bind("SUPER + ALT+ O",         "Projects",              "/home/suman/.config/hypr/scripts/project-open.sh")
+o.bind("SUPER + ALT+ V",         "Vault sync",         "/home/suman/.config/hypr/scripts/vault-sync.sh")
+o.bind("SUPER+ ALT + Space",     "Scripts Menu",          "/home/suman/.config/hypr/scripts/unified_menu.sh")
+o.bind("SUPER + ALT+ K", "Toggle Keyboard RGB",   "/home/suman/.config/hypr/scripts/keyboard-rgb.sh toggle")
 
 -- ============================================================
 -- SPECIAL CHARACTER BINDINGS
