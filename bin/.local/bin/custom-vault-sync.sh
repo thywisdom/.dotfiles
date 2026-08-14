@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# vault-sync.sh — Git-based Vault sync (push/pull/rebase)
+# custom-vault-sync.sh — Git-based Vault sync (push/pull/rebase)
 
 set -euo pipefail
 

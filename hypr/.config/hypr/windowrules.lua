@@ -9,16 +9,16 @@
 --o.window({ title = "^(Spotify Premium|YouTube Music)$" }, { workspace = "special:music silent" })
 
 -- Custom floating class (any window launched with class "floating")
-o.window("^(floating)$", { float = true, size = "60% 50%", center = true })
+o.window("^(floating)$", { float = true, size = { 920, 432 }, center = true })
 
--- User scripts launched in terminal (bin-permissions etc.) — float centered
-o.window("^(user-script)$", { float = true, size = "80% 60%", center = true })
+-- Custom scripts launched in terminal (custom-bin-permissions, custom-system-cleanup, etc.) — large floating centered rectangle
+o.window("^((custom|user)-scripts?)$", { float = true, size = { 1350, 708 }, center = true })
 
 -- Google search & Gemini search webapps (supports both Chrome and Brave)
-o.window("^((chrome|brave)-google\\.com.*|(chrome|brave)-gemini\\.google\\.com.*)$", { float = true, size = "1100 700", center = true })
+o.window("^((chrome|brave)-google\\.com.*|(chrome|brave)-gemini\\.google\\.com.*)$", { float = true, size = { 1100, 700 }, center = true })
 
 -- System dialogs (file pickers, portals, OnlyOffice popups)
-o.window("^(DesktopEditors|xdg-desktop-portal-gtk|Xdg-desktop-portal-gtk)$", { float = true, size = "60% 50%", center = true })
+o.window("^(DesktopEditors|xdg-desktop-portal-gtk|Xdg-desktop-portal-gtk)$", { float = true, size = { 920, 432 }, center = true })
 
 -- Tensaku: float + center its window. Tensaku sizes its own window
 -- around the capture, so it must float with no fixed-size rule. The

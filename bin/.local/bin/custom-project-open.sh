@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# project-open.sh — Omarchy Quickshell menu project selector + IDE picker
+# custom-project-open.sh — Omarchy Quickshell menu project selector + IDE picker
 # Shows folders in ~/Projects, then lets you pick an installed IDE.
 
 set -euo pipefail
@@ -23,7 +23,7 @@ declare -A IDE_BINS=(
 declare -A IDE_CMDS=(
   ["VSCode"]="uwsm app -- code {path}"
   ["VSCodium"]="uwsm app -- codium {path}"
-  ["Antigravity"]="uwsm app -- antigravity-launch {path}"
+  ["Antigravity"]="uwsm app -- custom-antigravity-launch {path}"
   ["Neovim"]="uwsm app -- $TERMINAL --working-directory {path} -e nvim {path}"
   ["OpenCode"]="uwsm app -- $TERMINAL --working-directory {path} -e opencode"
   ["Zed"]="uwsm app -- zeditor {path}"

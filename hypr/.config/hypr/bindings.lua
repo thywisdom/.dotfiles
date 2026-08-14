@@ -75,10 +75,10 @@ o.bind("SUPER + TAB", "Overview", "omarchy-shell shell toggle omarchy-overview")
 
 -- Interface, Bars & Custom Switchers
 o.bind("ALT + SPACE", "Apps", "omarchy-menu toggle apps")
-o.bind("SUPER + ALT+ O",         "Projects",              "/home/suman/.config/hypr/scripts/project-open.sh")
-o.bind("SUPER + ALT+ V",         "Vault sync",         "/home/suman/.config/hypr/scripts/vault-sync.sh")
-o.bind("SUPER+ ALT + Space",     "Scripts Menu",          "/home/suman/.config/hypr/scripts/unified_menu.sh")
-o.bind("SUPER + ALT+ K", "Toggle Keyboard RGB",   "/home/suman/.config/hypr/scripts/keyboard-rgb.sh toggle")
+o.bind("SUPER + ALT+ O",         "Projects",              "custom-project-open.sh")
+o.bind("SUPER + ALT+ V",         "Vault sync",            "custom-vault-sync.sh")
+o.bind("SUPER+ ALT + Space",     "Scripts Menu",          "custom-unified-menu.sh")
+o.bind("SUPER + ALT+ K",         "Toggle Keyboard RGB",   "custom-keyboard-rgb.sh toggle")
 
 -- ============================================================
 -- SPECIAL CHARACTER BINDINGS
@@ -91,7 +91,7 @@ o.bind("SUPER + SHIFT + Return", "Herdr",   "uwsm app -- xdg-terminal-exec --dir
 
 -- Editor
 o.bind("SUPER + comma",         "Editor (Code)",        "uwsm app -- vscodium")
-o.bind("SUPER + SHIFT + comma", "Editor (Antigravity)", "uwsm app -- antigravity-launch")
+o.bind("SUPER + SHIFT + comma", "Editor (Antigravity)", "uwsm app -- custom-antigravity-launch")
 
 -- Music
 o.bind("SUPER + period",         "Spotify",       "uwsm app -- spotify changes")
@@ -151,7 +151,7 @@ o.bind("SUPER + Y", "YouTube", o.launch_webapp("https://youtube.com/"))
 -- ============================================================
 
 -- Music workspace scratchpad (special:music)
-o.bind("SUPER + F1",         "Music Workspace (special:music)",    "~/.local/bin/music-workspace")
+o.bind("SUPER + F1",         "Music Workspace (special:music)",    "custom-music-workspace")
 o.bind("SUPER + ALT + F1",   "Move Window → Music Workspace",      hl.dsp.window.move({ workspace = "special:music", follow = false }))
 
 -- ============================================================

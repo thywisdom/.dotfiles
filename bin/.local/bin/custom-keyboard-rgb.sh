@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# keyboard-rgb.sh — Omarchy Quickshell menu for Acer ALG keyboard RGB control
+# custom-keyboard-rgb.sh — Omarchy Quickshell menu for Acer ALG keyboard RGB control
 #
 # FLOW:
 #   Step 1 — Top-level menu:   Toggle On/Off | Set Color | Presets
