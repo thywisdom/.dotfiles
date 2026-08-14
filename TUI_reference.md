@@ -85,58 +85,47 @@ done_() { printf "\033[1;32m[DONE]\033[0m  %s\n" "$*"; }
 skip()  { printf "\033[0;90m[SKIP]\033[0m  %s\n" "$*"; }
 ```
 
-### 3.4 Yes/No Confirmation (Omarchy canonical pattern)
+### 3.4 Yes/No Confirmation & Affirmation Gate (Omarchy pattern)
 
 ```bash
-# Pattern: info box → blank line → gum confirm
-gum style --border normal --padding "1 2" \
-  "⚠  This will permanently empty the Trash." \
+# Pattern: Styled Info Box → Clear Button Labels → Navigation Hint
+gum style --border rounded --border-foreground "#a6e3a1" --padding "1 2" \
+  "$(gum style --bold --foreground '#cdd6f4' 'Ready to proceed with system cleanup?')" \
   "" \
-  "Files cannot be recovered after this step."
+  "  • Safe Stages   : Coredumps, User cache, /tmp, /var/tmp, Log archives, Journal, Orphans" \
+  "  • Prompt Stages : Pacman cache (-Scc), Trash, Snapper snapshots" \
+  "" \
+  "$(gum style --foreground '#585b70' 'Navigation: Use [Left/Right] arrows or [y/n] keys, then press [Enter] to submit.')"
 
 echo
 
-if gum confirm "Proceed with emptying Trash?"; then
-  # do the action
+if gum confirm \
+  --affirmative "Proceed (Enter)" \
+  --negative "Skip & Exit (n/Esc)" \
+  "Confirm cleanup execution:"; then
+  # proceed
 else
-  echo "Skipped."
+  echo "Cancelled."
+  exit 0
 fi
 ```
 
-Auto-shows keyboard hints: `↔ toggle · enter submit · y Yes · n No`
+Keyboard navigation hint is explicitly provided and highlighted:
+`↔ toggle · enter submit · y Yes · n No`
 
-### 3.5 Spinner (while command runs)
+---
 
-```bash
-# Fire-and-measure pattern:
-gum spin --spinner dot --title "Vacuuming systemd journal..." -- \
-  sudo journalctl --vacuum-size=200M
+### 3.7 Table Display (Static `--print` vs Interactive)
 
-# With output capture:
-gum spin --spinner globe --title "Cleaning pacman cache..." \
-  --show-output -- sudo pacman -Scc --noconfirm
-```
-
-**Spinner styles**: `line` `dot` `minidot` `jump` `pulse` `points` `globe` `moon` `monkey` `meter` `hamburger`
-
-### 3.6 Choose / Select Menu (replaces numbered menus)
+> **Important**: Always pass `-p` / `--print` when displaying dry-run inspection or final summary tables. Without `-p`, `gum table` enters interactive row-navigation mode which traps terminal input and displays pagination helper text (`1/10 • ↑↓ navigate...`).
 
 ```bash
-CHOICE=$(gum choose \
-  --header "Select journal vacuum policy:" \
-  "Conservative — 14d / 200M (Recommended)" \
-  "Moderate — 7d / 100M" \
-  "Aggressive — vacuum to 1M" \
-  "Skip")
-```
-
-### 3.7 Table Display (summary / dry-run)
-
-```bash
-printf "Category,Before,After,Reclaimed,Status\n" > /tmp/cleanup_table
-printf "Pacman Cache,3.2 GiB,0 B,3.2 GiB,✓ Done\n" >> /tmp/cleanup_table
-printf "Journal,800 MiB,200 MiB,600 MiB,✓ Done\n" >> /tmp/cleanup_table
-cat /tmp/cleanup_table | gum table --widths 20,12,12,12,10 --separator ","
+# Static table rendering (preferred for inspect & summary):
+{
+  printf "Category,Before,After,Reclaimed,Status\n"
+  printf "Pacman Cache,3.2 GiB,0 B,3.2 GiB,✓ SUCCESS\n"
+  printf "Journal,800 MiB,200 MiB,600 MiB,✓ SUCCESS\n"
+} | gum table --print --widths 20,12,12,12,14
 ```
 
 ### 3.8 "Done" Completion Signal (Omarchy `omarchy-show-done` pattern)
@@ -172,17 +161,19 @@ The class is matched by Hyprland via the app-id set on the terminal process. Use
 
 ### 5.1 Two-Phase Flow (Inspect → Act)
 
-1. **Phase 1 — Inspect / Dry-run**: Measure all targets, display system info + freeable space table.
-   - Show any `[WARN]` / `[ERROR]` for inaccessible paths here.
-   - No changes made.
-2. **Affirmation Gate**: Single `gum confirm` to proceed to cleanup.
-3. **Phase 2 — Execute**: Sequential cleanup stages with per-stage spinners and before/after accounting.
-4. **Summary**: Final table of all stages' reclaimed space + status.
+1. **Phase 1 — Inspect / Dry-run**: Display System Information (Banner, Hostname, Kernel, Disk Usage `/` & `~/`) and measure cleanup target sizes.
+   - Display static dry-run scan table (`gum table --print`) + estimated freeable space.
+   - Show any `[WARN]` / `[ERROR]` for inaccessible or missing paths here.
+   - Zero system changes made during this phase.
+2. **Sudo Authentication Gate**: Prompt for `sudo` password **after** displaying the System Information & Dry-run scan block.
+3. **Affirmation Gate**: Styled confirmation box with explicit button options (`--affirmative "Proceed (Enter)"` / `--negative "Skip & Exit (n/Esc)"`).
+4. **Phase 2 — Execute**: Sequential cleanup stages with per-stage spinners and before/after space accounting.
+5. **Phase 3 — Summary**: Final static table (`gum table --print`) of all stages' reclaimed space + status breakdown + exit prompt.
 
 ### 5.2 Progressive Disclosure
 
-- Show total freeable space **before** asking permission.
-- Dangerous stages (Trash, Snapper delete) require **explicit named confirmation** even in batch mode.
+- Show total freeable space **before** asking permission or invoking sudo elevation.
+- Dangerous stages (Pacman `-Scc`, Trash, Snapper delete) require **explicit confirmed prompts** even in batch mode.
 
 ### 5.3 Batch vs Interactive Mode
 
@@ -201,7 +192,9 @@ The class is matched by Hyprland via the app-id set on the terminal process. Use
 | Command failed         | `gum log --level error` + exit code shown    | Record PARTIAL/FAILED |
 | Dangerous op           | `gum style` warning box + explicit confirm   | Block until confirmed |
 
-### 5.5 Sudo Lifecycle (Omarchy `omarchy-sudo-keepalive` pattern)
+### 5.5 Sudo Lifecycle (Post-System-Info Placement)
+
+Prompt for `sudo` authentication **after** rendering unprivileged System Details:
 
 ```bash
 init_sudo() {
