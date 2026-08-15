@@ -93,7 +93,7 @@ gum style --border rounded --border-foreground "#a6e3a1" --padding "1 2" \
   "$(gum style --bold --foreground '#cdd6f4' 'Ready to proceed with system cleanup?')" \
   "" \
   "  • Safe Stages   : Coredumps, User cache, /tmp, /var/tmp, Log archives, Journal, Orphans" \
-  "  • Prompt Stages : Pacman cache (-Scc), Trash, Snapper snapshots" \
+  "  • Prompt Stages : Pacman & yay cache (-Scc), Trash, Snapper snapshots" \
   "" \
   "$(gum style --foreground '#585b70' 'Navigation: Use [Left/Right] arrows or [y/n] keys, then press [Enter] to submit.')"
 

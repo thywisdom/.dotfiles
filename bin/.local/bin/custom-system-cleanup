@@ -333,6 +333,14 @@ stage_pacman() {
         gum log --level warn "pacman -Scc returned non-zero exit"
         grep -i "error" "${plog}" 2>/dev/null | head -5 || true
     }
+
+    if command -v yay &>/dev/null; then
+        gum spin --spinner dot --title "yay -Scc --noconfirm (AUR & yay cache)..." -- \
+            bash -c "yay -Scc --noconfirm >> '${plog}' 2>&1" || {
+            gum log --level warn "yay -Scc returned non-zero exit"
+            grep -i "error" "${plog}" 2>/dev/null | head -5 || true
+        }
+    fi
     rm -f "${plog}"
 
     # Fallback: residual download-* dirs (known pacman bug: "Is a directory" error)

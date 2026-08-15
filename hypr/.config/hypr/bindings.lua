@@ -35,9 +35,6 @@
 
 -- SUPER
 hl.unbind("SUPER + code:61")
-hl.unbind("SUPER + G")
-hl.unbind("SUPER + L")
-hl.unbind("SUPER + O")
 hl.unbind("SUPER + P")
 hl.unbind("SUPER + RETURN")
 hl.unbind("SUPER + slash")
@@ -120,21 +117,13 @@ o.bind("SUPER + SHIFT + D", "Docker (Lazydocker)", "uwsm app -- $(omarchy-defaul
 -- E
 o.bind("SUPER + E", "File Manager (Nautilus)", "uwsm app -- nautilus --new-window")
 
--- G
-o.bind("SUPER + G", "GitHub", o.launch_webapp("https://github.com/"))
-
--- L
-o.bind("SUPER + L", "LeetCode", o.launch_webapp("https://leetcode.com/problemset/"))
-
 -- M
 o.bind("SUPER + M",         "Email (Primary)",  o.launch_webapp("https://mail.google.com/mail/u/0/"))
 o.bind("SUPER + SHIFT + M", "Email (Personal)", o.launch_webapp("https://mail.google.com/mail/u/1/"))
 
 -- N
 o.bind("SUPER + N",         "Notes (Obsidian)",    o.launch_sole("obsidian", "obsidian --enable-wayland-ime"))
--- o.bind("SUPER + N",         "Notes (Zennotes)",    o.launch_sole("zennotes", "zennotes --enable-wayland-ime"))
 o.bind("SUPER + SHIFT + N", "Notes (Google Keep)", o.launch_webapp("https://keep.google.com/u/0/"))
-
 
 -- R
 o.bind("SUPER + R", "Reddit", o.launch_webapp("https://reddit.com"))
@@ -158,4 +147,4 @@ o.bind("SUPER + ALT + F1",   "Move Window → Music Workspace",      hl.dsp.wind
 -- CUSTOM SCRIPTED BINDINGS
 -- ============================================================
 
-o.bind("SUPER + CTRL + N", "Toggle Nightlight (3250K)", "bash -c 'temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE \"[0-9]+\"); if [ \"$temp\" -lt 6000 ]; then hyprctl hyprsunset temperature 6500; else hyprctl hyprsunset temperature 3250; fi'")
+o.bind("SUPER + CTRL + N", "Toggle Nightlight (3000K)", "bash -c 'temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE \"[0-9]+\"); if [ \"$temp\" -lt 6000 ]; then hyprctl hyprsunset temperature 6500; else hyprctl hyprsunset temperature 3250; fi'")
