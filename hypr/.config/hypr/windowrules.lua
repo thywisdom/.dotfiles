@@ -33,3 +33,10 @@ o.window("^dev\\.tensaku\\.Tensaku$", {
 -- Disable all transparency on all windows
 o.window(".*", { opacity = "1.0 override 1.0 override" })
 
+
+hl.workspace_rule({
+    workspace = 5,
+    monitor = "eDP-1",
+    default = true,
+})
+

@@ -68,7 +68,6 @@ hl.unbind("SUPER + CTRL + N")
 
 -- Window Management
 o.bind("SUPER + SHIFT + Q", "Kill active window", hl.dsp.window.close())
-o.bind("SUPER + TAB", "Overview", "omarchy-shell shell toggle omarchy-overview")
 
 -- Interface, Bars & Custom Switchers
 o.bind("ALT + SPACE", "Apps", "omarchy-menu toggle apps")
@@ -76,6 +75,13 @@ o.bind("SUPER + ALT+ O",         "Projects",              "custom-project-open.s
 o.bind("SUPER + ALT+ V",         "Vault sync",            "custom-vault-sync.sh")
 o.bind("SUPER+ ALT + Space",     "Scripts Menu",          "custom-unified-menu.sh")
 o.bind("SUPER + ALT+ K",         "Toggle Keyboard RGB",   "custom-keyboard-rgb.sh toggle")
+
+-- ============================================================
+-- SESSION — SHELL PLUGINS BINDS
+-- ============================================================
+
+-- Workspace overview
+o.bind("SUPER + TAB",     "Overview",    "omarchy-shell shell toggle omarchy-overview")
 
 -- ============================================================
 -- SPECIAL CHARACTER BINDINGS
