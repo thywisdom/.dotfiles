@@ -49,7 +49,7 @@ hl.unbind("SUPER + ALT + K")
 
 
 -- SUPER + CTRL
--- hl.unbind("SUPER + CTRL + N")
+hl.unbind("SUPER + CTRL + N")
 
 -- ============================================================
 -- SESSION — SYSTEM CONTROLS
@@ -131,5 +131,5 @@ o.bind("SUPER + ALT + F1",   "Move Window → Music Workspace",      hl.dsp.wind
 -- CUSTOM SCRIPTED BINDINGS
 -- ============================================================
 
--- o.bind("SUPER + CTRL + N", "Toggle Nightlight (3000K)", "bash -c 'temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE \"[0-9]+\"); if [ \"$temp\" -lt 6000 ]; then hyprctl hyprsunset temperature 6500; else hyprctl hyprsunset temperature 3250; fi'")
+o.bind("SUPER + CTRL + N", "Toggle Nightlight (3000K)", "bash -c 'temp=$(hyprctl hyprsunset temperature 2>/dev/null | grep -oE \"[0-9]+\"); if [ \"$temp\" -lt 6000 ]; then hyprctl hyprsunset temperature 6500; else hyprctl hyprsunset temperature 3250; fi'")
 

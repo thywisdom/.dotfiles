@@ -58,9 +58,9 @@
 
 -- Custom settings for Logitech wireless mouse only
 
--- hl.device({
---   name = "logitech-wireless-mouse-pid:4022-1",
---   sensitivity = -0.25,
---   accel_profile = "adaptive",
---   scroll_factor = 0.7,
--- })
+hl.device({
+  name = "logitech-wireless-mouse-pid:4022-1",
+  sensitivity = -0.25,
+  accel_profile = "adaptive",
+  scroll_factor = 0.7,
+})

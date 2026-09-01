@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# package.sh — Dotfiles package management utility
+# package.sh — Dotfiles IgnorePkg management utility
 # =============================================================================
-# Manages packages and pacman configuration from the dotfiles repository.
+# Manages pacman IgnorePkg configuration from the dotfiles repository.
 # The only permanent /etc/ modifications this script makes are:
 #   1. Symlink: /etc/pacman.d/dotfiles-ignore.conf → this repo's ignore.conf
 #   2. One Include line inside [options] in /etc/pacman.conf
@@ -24,16 +24,13 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-# Data paths — all siblings of this script under .pkgmgmt/
+# Data paths
 PACMAN_CONF="/etc/pacman.conf"
 PACMAN_D_DIR="/etc/pacman.d"
 SYMLINK_NAME="dotfiles-ignore.conf"
 SYMLINK_PATH="$PACMAN_D_DIR/$SYMLINK_NAME"
 IGNORE_CONF_SOURCE="$SCRIPT_DIR/packages/pacman.d/ignore.conf"
 INCLUDE_LINE="Include = $SYMLINK_PATH"
-
-PACMAN_TXT="$SCRIPT_DIR/packages/pacman.txt"
-AUR_TXT="$SCRIPT_DIR/packages/aur.txt"
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -128,7 +125,7 @@ cmd_verify() {
     if $all_ok; then
         echo -e "${GREEN}${BOLD}All checks passed. Configuration is healthy.${RESET}"
     else
-        echo -e "${RED}${BOLD}One or more checks failed. Run option 6 (Repair) to fix.${RESET}"
+        echo -e "${RED}${BOLD}One or more checks failed. Run option 3 (Repair) to fix.${RESET}"
     fi
 }
 
@@ -182,7 +179,6 @@ cmd_configure() {
             fi
         fi
     elif [[ -e "$SYMLINK_PATH" ]]; then
-        # Path exists but is a regular file — refuse to overwrite silently
         die "Path exists and is not a symlink: $SYMLINK_PATH\nManually remove it first if you want to replace it."
     else
         needs_symlink=true
@@ -198,7 +194,6 @@ cmd_configure() {
     if _include_in_options; then
         success "Include already configured inside [options] — no change needed"
     elif _include_anywhere; then
-        # Line exists but outside [options] — wrong placement
         warn "Include line found in pacman.conf but NOT inside [options]."
         warn "Manual review recommended: $PACMAN_CONF"
         warn "Skipping automatic insertion to avoid duplication."
@@ -208,7 +203,6 @@ cmd_configure() {
 
     if $needs_include; then
         info "Inserting Include into [options] in $PACMAN_CONF"
-        # Write to a temp file first (atomic write — no partial edits)
         local tmp
         tmp="$(sudo mktemp "$PACMAN_D_DIR/.pacman.conf.XXXXXX")"
         sudo awk '
@@ -219,9 +213,6 @@ cmd_configure() {
             }
             { print }
         ' "$PACMAN_CONF" | sudo tee "$tmp" > /dev/null
-        # chmod/chown the temp file BEFORE mv — sudo mktemp creates files as 600
-        # (root-only). Setting 644 here ensures the destination inherits correct
-        # world-readable permissions atomically with the mv.
         sudo chmod 644 "$tmp"
         sudo chown root:root "$tmp"
         sudo mv "$tmp" "$PACMAN_CONF"
@@ -229,7 +220,6 @@ cmd_configure() {
     fi
 
     echo
-    # Run verify to confirm final state
     cmd_verify
 }
 
@@ -238,113 +228,6 @@ cmd_configure() {
 # ---------------------------------------------------------------------------
 cmd_repair() {
     header "Repairing Configuration"
-    cmd_configure
-}
-
-# ---------------------------------------------------------------------------
-# Resolve AUR helper (paru preferred, yay fallback)
-# ---------------------------------------------------------------------------
-_aur_helper() {
-    if command -v paru &>/dev/null; then echo "paru"
-    elif command -v yay &>/dev/null; then echo "yay"
-    else echo ""; fi
-}
-
-# ---------------------------------------------------------------------------
-# Install pacman packages (with auto-AUR fallback per package)
-# ---------------------------------------------------------------------------
-cmd_install_pacman() {
-    header "Installing Official Packages"
-
-    [[ -f "$PACMAN_TXT" ]] || die "File not found: $PACMAN_TXT"
-
-    local pkgs
-    pkgs="$(grep -vE '^\s*($|#)' "$PACMAN_TXT" || true)"
-
-    if [[ -z "$pkgs" ]]; then
-        warn "pacman.txt is empty — nothing to install."
-        return
-    fi
-
-    # ── Sort packages: official vs needs-AUR-fallback ──────────────────────
-    local official_pkgs=()
-    local fallback_pkgs=()
-
-    while IFS= read -r pkg; do
-        [[ -z "$pkg" ]] && continue
-        if pacman -Si "$pkg" &>/dev/null; then
-            official_pkgs+=("$pkg")
-        else
-            warn "'$pkg' not found in pacman repos — will try AUR helper"
-            fallback_pkgs+=("$pkg")
-        fi
-    done <<< "$pkgs"
-
-    # ── Install official packages ───────────────────────────────────────────
-    if [[ ${#official_pkgs[@]} -gt 0 ]]; then
-        info "Official packages to install:"
-        printf '    %s\n' "${official_pkgs[@]}"
-        echo
-        sudo pacman -S --needed "${official_pkgs[@]}"
-        success "Official packages done."
-    fi
-
-    # ── Fallback: install via AUR helper ───────────────────────────────────
-    if [[ ${#fallback_pkgs[@]} -gt 0 ]]; then
-        local aur_helper
-        aur_helper="$(_aur_helper)"
-        if [[ -z "$aur_helper" ]]; then
-            error "No AUR helper (paru/yay) found — cannot install: ${fallback_pkgs[*]}"
-            error "Install paru or yay and re-run."
-        else
-            info "AUR helper ($aur_helper) will install:"
-            printf '    %s\n' "${fallback_pkgs[@]}"
-            echo
-            "$aur_helper" -S --needed "${fallback_pkgs[@]}"
-            success "AUR fallback packages done."
-        fi
-    fi
-
-    echo
-    success "All pacman packages processed."
-}
-
-
-# ---------------------------------------------------------------------------
-# Install AUR packages
-# ---------------------------------------------------------------------------
-cmd_install_aur() {
-    header "Installing AUR Packages"
-
-    [[ -f "$AUR_TXT" ]] || die "File not found: $AUR_TXT"
-
-    local pkgs
-    pkgs="$(grep -vE '^\s*($|#)' "$AUR_TXT" || true)"
-
-    if [[ -z "$pkgs" ]]; then
-        warn "aur.txt is empty — nothing to install."
-        return
-    fi
-
-    local aur_helper
-    aur_helper="$(_aur_helper)"
-    [[ -n "$aur_helper" ]] || die "No AUR helper found (paru/yay). Install one first."
-
-    info "AUR helper: $aur_helper"
-    info "Packages to install:"
-    echo "$pkgs" | sed 's/^/    /'
-    echo
-    # shellcheck disable=SC2086
-    "$aur_helper" -S --needed $pkgs
-    success "Done."
-}
-
-# ---------------------------------------------------------------------------
-# Install everything
-# ---------------------------------------------------------------------------
-cmd_install_all() {
-    cmd_install_pacman
-    cmd_install_aur
     cmd_configure
 }
 
@@ -380,7 +263,7 @@ cmd_add_ignore_tui() {
     )
 
     info "Opening package selector (explicitly installed packages)..."
-    
+
     local pkg_names
     pkg_names=$(pacman -Qqe | fzf "${fzf_args[@]}" || true)
 
@@ -392,18 +275,16 @@ cmd_add_ignore_tui() {
     local added=0
     local skipped=0
 
-    # Ensure source file exists
     [[ -f "$IGNORE_CONF_SOURCE" ]] || touch "$IGNORE_CONF_SOURCE"
 
     while IFS= read -r pkg; do
         [[ -z "$pkg" ]] && continue
-        
+
         # Escape special regex characters in package name (+ and .)
         local safe_pkg="${pkg//+/\\+}"
         safe_pkg="${safe_pkg//./\\.}"
-        
+
         # Check if already present to avoid duplicates
-        # Matches: IgnorePkg = pkg, IgnorePkg=pkg, IgnorePkg = pkg1 pkg2
         if grep -qE "^[[:space:]]*IgnorePkg[[:space:]]*=.*[[:space:]]$safe_pkg([[:space:]]|$)" "$IGNORE_CONF_SOURCE" || \
            grep -qE "^[[:space:]]*IgnorePkg[[:space:]]*=[[:space:]]*$safe_pkg([[:space:]]|$)" "$IGNORE_CONF_SOURCE"; then
             warn "'$pkg' is already in ignore.conf"
@@ -414,7 +295,7 @@ cmd_add_ignore_tui() {
             added=$((added + 1))
         fi
     done <<< "$pkg_names"
-    
+
     echo
     info "Summary: $added added, $skipped skipped."
 }
@@ -444,20 +325,17 @@ cmd_show_ignore() {
 # ---------------------------------------------------------------------------
 show_menu() {
     echo -e "\n${BOLD}╔══════════════════════════════╗"
-    echo    "║     Package Setup Utility    ║"
+    echo    "║     IgnorePkg Manager        ║"
     echo -e "╚══════════════════════════════╝${RESET}"
     echo
-    echo "  1. Install pacman packages"
-    echo "  2. Install AUR packages"
-    echo "  3. Install everything"
-    echo "  4. Configure IgnorePkg  (symlink + Include)"
-    echo "  5. Verify configuration"
-    echo "  6. Repair configuration"
-    echo "  7. Add packages to IgnorePkg (TUI)"
-    echo "  8. Show ignored packages"
-    echo "  9. Exit"
+    echo "  1. Configure  (symlink + Include)"
+    echo "  2. Verify configuration"
+    echo "  3. Repair configuration"
+    echo "  4. Add packages to IgnorePkg  (TUI)"
+    echo "  5. Show ignored packages"
+    echo "  6. Exit"
     echo
-    echo -n "Choose [1-9]: "
+    echo -n "Choose [1-6]: "
 }
 
 # ---------------------------------------------------------------------------
@@ -467,15 +345,12 @@ main() {
     # Non-interactive mode: accept action as first argument
     if [[ $# -gt 0 ]]; then
         case "$1" in
-            install-pacman) cmd_install_pacman ;;
-            install-aur)    cmd_install_aur ;;
-            install-all)    cmd_install_all ;;
-            configure)      cmd_configure ;;
-            verify)         cmd_verify ;;
-            repair)         cmd_repair ;;
-            add-ignore)     cmd_add_ignore_tui ;;
-            show-ignore)    cmd_show_ignore ;;
-            *) die "Unknown command: $1\nUsage: $0 [install-pacman|install-aur|install-all|configure|verify|repair|add-ignore|show-ignore]" ;;
+            configure)   cmd_configure ;;\
+            verify)      cmd_verify ;;
+            repair)      cmd_repair ;;
+            add-ignore)  cmd_add_ignore_tui ;;
+            show-ignore) cmd_show_ignore ;;
+            *) die "Unknown command: $1\nUsage: $0 [configure|verify|repair|add-ignore|show-ignore]" ;;
         esac
         exit 0
     fi
@@ -486,16 +361,13 @@ main() {
         read -r choice
 
         case "$choice" in
-            1) cmd_install_pacman ;;
-            2) cmd_install_aur ;;
-            3) cmd_install_all ;;
-            4) cmd_configure ;;
-            5) cmd_verify ;;
-            6) cmd_repair ;;
-            7) cmd_add_ignore_tui ;;
-            8) cmd_show_ignore ;;
-            9) echo -e "\n${CYAN}Goodbye.${RESET}\n"; exit 0 ;;
-            *) warn "Invalid choice. Enter a number from 1 to 9." ;;
+            1) cmd_configure ;;
+            2) cmd_verify ;;
+            3) cmd_repair ;;
+            4) cmd_add_ignore_tui ;;
+            5) cmd_show_ignore ;;
+            6) echo -e "\n${CYAN}Goodbye.${RESET}\n"; exit 0 ;;
+            *) warn "Invalid choice. Enter a number from 1 to 6." ;;
         esac
 
         echo

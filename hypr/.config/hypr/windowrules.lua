@@ -11,9 +11,9 @@
 -- Custom floating class (any window launched with class "floating")
 o.window("^(floating)$", { float = true, size = { 920, 432 }, center = true })
 
--- Custom scripts launched in terminal (custom-bin-permissions, custom-system-cleanup, etc.) — large floating centered rectangle
-o.window("^((custom|user)-scripts?)$", { float = true, size = { 1350, 708 }, center = true })
 
+-- Custom scripts launched in terminal (custom-bin-permissions, custom-system-cleanup, etc.) — floating centered rectangle
+o.window("^((custom|user)-scripts?)$", { float = true, size = { 1000, 580 }, center = true })
 -- Google search & Gemini search webapps (supports both Chrome and Brave)
 o.window("^((chrome|brave)-google\\.com.*|(chrome|brave)-gemini\\.google\\.com.*)$", { float = true, size = { 1100, 700 }, center = true })
 
@@ -28,6 +28,6 @@ o.window("^(DesktopEditors|xdg-desktop-portal-gtk|Xdg-desktop-portal-gtk)$", { f
 hl.workspace_rule({
     workspace = 5,
     monitor = "eDP-1",
-    default = true,
+    default = true
 })
 

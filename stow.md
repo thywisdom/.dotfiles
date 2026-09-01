@@ -183,3 +183,5 @@ stow bin
 | `stow -D <pkg>` | **Unstow** | Removes all symlinks belonging to `<pkg>`. |
 | `stow --adopt <pkg>` | **Adopt** | Links `<pkg>` and adopts existing target files into the repository. |
 | `custom-bin-permissions.sh` | **Check Bins** | Interactive TUI to verify & fix `chmod +x` on stowed binaries. |
+
+stow -v --no-folding bin - to stow a single or unstowed new bin file that has just added but hasnt been stowed

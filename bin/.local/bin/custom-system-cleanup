@@ -25,7 +25,6 @@ readonly JOURNAL_DIR="/var/log/journal"
 
 # ── Mutable state ─────────────────────────────────────────────────────────────
 SUDO_KEEPALIVE_PID=""
-BATCH=0   # --yes / -y  : auto-proceed safe stages
 DRY=0     # --dry-run/-d: inspect only, no changes
 
 # Stage accounting
@@ -211,7 +210,7 @@ phase_inspect() {
     } | gum table --print --widths "14,26,20,9,8"
 
     echo
-    local total_est=$(( sz_core + sz_pacman + sz_ucache + sz_trash + sz_tradlog + sz_journal ))
+    local total_est=$(( sz_core + sz_pacman + sz_ucache + sz_trash + sz_vartmp + sz_tradlog + sz_journal ))
     gum style \
         --foreground "#a6e3a1" \
         --bold \
@@ -222,11 +221,10 @@ phase_inspect() {
 
     # ── Access warnings (shown before confirm) ────────────────────────────────
     echo
-    local access_ok=1
-    _warn_access "${COREDUMP_DIR}"  "Coredump dir"  0 || access_ok=0
-    _warn_access "${PACMAN_CACHE}"  "Pacman cache"  0 || access_ok=0
-    _warn_access "${USER_CACHE}"    "User cache"    0 || access_ok=0
-    _warn_access "${USER_TRASH}"    "User trash"    0 || access_ok=0
+    _warn_access "${COREDUMP_DIR}"  "Coredump dir"
+    _warn_access "${PACMAN_CACHE}"  "Pacman cache"
+    _warn_access "${USER_CACHE}"    "User cache"
+    _warn_access "${USER_TRASH}"    "User trash"
 }
 
 _irow() {
@@ -239,18 +237,13 @@ _irow() {
 }
 
 _warn_access() {
-    local path="${1}" label="${2}" use_sudo="${3:-0}"
+    local path="${1}" label="${2}"
     if [[ ! -e "${path}" ]]; then
         gum log --level warn "${label} not found: ${path}"
         return 0
     fi
-    if (( use_sudo )); then
-        sudo test -r "${path}" 2>/dev/null || \
-            gum log --level error "Permission denied (sudo): ${path} — stage will be skipped"
-    else
-        if [[ ! -r "${path}" ]]; then
-            gum log --level error "Permission denied: ${path} — stage will be skipped"
-        fi
+    if [[ ! -r "${path}" ]]; then
+        gum log --level error "Permission denied: ${path} — stage will be skipped"
     fi
 }
 
@@ -714,33 +707,33 @@ phase_summary() {
 
     local total_b=0 total_a=0 total_freed=0
     local cnt_ok=0 cnt_partial=0 cnt_skipped=0 cnt_failed=0
+    local table_data="Module,Before,After,Reclaimed,Status"$'\n'
 
-    {
-        printf "Module,Before,After,Reclaimed,Status\n"
-        for k in "${SK[@]}"; do
-            local b="${SB[${k}]}" a="${SA[${k}]}" r="${SF[${k}]}" st="${SS[${k}]}"
-            total_b=$(( total_b + b ))
-            total_a=$(( total_a + a ))
-            total_freed=$(( total_freed + r ))
+    for k in "${SK[@]}"; do
+        local b="${SB[${k}]:-0}" a="${SA[${k}]:-0}" r="${SF[${k}]:-0}" st="${SS[${k}]:-}"
+        total_b=$(( total_b + b ))
+        total_a=$(( total_a + a ))
+        total_freed=$(( total_freed + r ))
 
-            local icon
-            case "${st}" in
-                SUCCESS) icon="✓"; cnt_ok=$(( cnt_ok + 1 ))           ;;
-                PARTIAL) icon="~"; cnt_partial=$(( cnt_partial + 1 )) ;;
-                SKIPPED) icon="—"; cnt_skipped=$(( cnt_skipped + 1 )) ;;
-                FAILED)  icon="✗"; cnt_failed=$(( cnt_failed + 1 ))   ;;
-                *)       icon="?"                                       ;;
-            esac
+        local icon
+        case "${st}" in
+            SUCCESS) icon="✓"; cnt_ok=$(( cnt_ok + 1 ))           ;;
+            PARTIAL) icon="~"; cnt_partial=$(( cnt_partial + 1 )) ;;
+            SKIPPED) icon="—"; cnt_skipped=$(( cnt_skipped + 1 )) ;;
+            FAILED)  icon="✗"; cnt_failed=$(( cnt_failed + 1 ))   ;;
+            *)       icon="?"                                     ;;
+        esac
 
-            printf "%s,%s,%s,%s,%s %s\n" \
-                "${SL[${k}]}" \
-                "$(fmt_bytes "${b}")" \
-                "$(fmt_bytes "${a}")" \
-                "$(fmt_bytes "${r}")" \
-                "${icon}" "${st}"
-        done
-        printf "TOTAL,$(fmt_bytes "${total_b}"),$(fmt_bytes "${total_a}"),$(fmt_bytes "${total_freed}"),\n"
-    } | gum table --print --widths "14,12,12,12,14"
+        table_data+="$(printf "%s,%s,%s,%s,%s %s\n" \
+            "${SL[${k}]}" \
+            "$(fmt_bytes "${b}")" \
+            "$(fmt_bytes "${a}")" \
+            "$(fmt_bytes "${r}")" \
+            "${icon}" "${st}")"$'\n'
+    done
+    table_data+="$(printf "TOTAL,$(fmt_bytes "${total_b}"),$(fmt_bytes "${total_a}"),$(fmt_bytes "${total_freed}"),\n")"
+
+    printf "%s" "${table_data}" | gum table --print --widths "14,12,12,12,14"
 
     echo
     gum style \
@@ -753,7 +746,7 @@ phase_summary() {
     # Print notes for partial/failed stages
     local has_notes=0
     for k in "${SK[@]}"; do
-        local st="${SS[${k}]}" note="${SN[${k}]:-}"
+        local st="${SS[${k}]:-}" note="${SN[${k}]:-}"
         if [[ ("${st}" == "PARTIAL" || "${st}" == "FAILED") && -n "${note}" ]]; then
             if (( has_notes == 0 )); then
                 echo
@@ -765,8 +758,12 @@ phase_summary() {
     done
 
     echo
-    gum spin --spinner globe --title "Done! Press any key to close..." -- \
-        bash -c 'read -n 1 -s'
+    # Flush any escape sequences in the OS tty buffer (e.g. gum terminal queries ^[[?2026;2$y)
+    python3 -c 'import termios, sys; termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)' 2>/dev/null || true
+    while read -t 0.05 -n 1000 -r -s _ 2>/dev/null; do :; done
+
+    read -n 1 -s -r -p "  Press any key to close..."
+    echo
 }
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
@@ -781,8 +778,6 @@ Options:
   -h, --help       Show this help
   -v, --version    Show version (${SCRIPT_VERSION})
   -d, --dry-run    Inspect cleanup targets only — no changes made
-  -y, --yes        Batch mode — auto-proceed for safe stages
-                   (Pacman, Trash, Snapper always require explicit confirmation)
 EOF
 }
 
@@ -793,7 +788,6 @@ main() {
             -h|--help)    usage; exit 0 ;;
             -v|--version) echo "${SCRIPT_NAME} v${SCRIPT_VERSION}"; exit 0 ;;
             -d|--dry-run) DRY=1 ;;
-            -y|--yes)     BATCH=1 ;;
         esac
     done
 

@@ -1,3 +1,0 @@
-# Official pacman packages — explicitly installed
-# One package per line. Comments allowed. Do NOT include dependencies.
-# Run: sudo pacman -S --needed $(grep -vE '^\s*($|#)' pacman.txt)

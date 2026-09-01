@@ -1,3 +1,0 @@
-# AUR packages — explicitly installed
-# One package per line. Comments allowed. Do NOT include dependencies.
-# Run: paru -S --needed $(grep -vE '^\s*($|#)' aur.txt)
