@@ -20,18 +20,9 @@ o.window("^((chrome|brave)-google\\.com.*|(chrome|brave)-gemini\\.google\\.com.*
 -- System dialogs (file pickers, portals, OnlyOffice popups)
 o.window("^(DesktopEditors|xdg-desktop-portal-gtk|Xdg-desktop-portal-gtk)$", { float = true, size = { 920, 432 }, center = true })
 
--- Tensaku: float + center its window. Tensaku sizes its own window
--- around the capture, so it must float with no fixed-size rule. The
--- `tag -floating-window` undoes Omarchy's default that would otherwise
--- pin a fixed size. Added by `tensaku --wire-omarchy`.
-o.window("^dev\\.tensaku\\.Tensaku$", {
-  tag    = "-floating-window",
-  float  = true,
-  center = true,
-})
 
 -- Disable all transparency on all windows
-o.window(".*", { opacity = "1.0 override 1.0 override" })
+-- o.window(".*", { opacity = "1.0 override 1.0 override" })
 
 
 hl.workspace_rule({

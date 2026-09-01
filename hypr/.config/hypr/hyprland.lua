@@ -5,10 +5,10 @@ dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/boo
 
 -- Disable all Omarchy default bindings. Add your own in hypr/bindings.lua.
 -- omarchy_default_bindings = false
-
+--
 -- Or disable only bindings for Omarchy's preinstalled apps/web apps while
 -- keeping core window-manager bindings:
-omarchy_preinstalled_bindings = false
+-- omarchy_preinstalled_bindings = false
 
 -- Load Omarchy defaults.
 require("default.hypr.omarchy")
@@ -20,12 +20,13 @@ require("hypr.monitors")
 require("hypr.input")
 require("hypr.bindings")
 require("hypr.looknfeel")
-require("hypr.envs")       -- personal env overrides (PATH, Tensaku, Chromium/Electron)
 require("hypr.autostart")
-require("hypr.windowrules")
 
 -- Toggle config flags dynamically.
 require("default.hypr.toggles")
 
 -- Add any other personal Hyprland configuration below.
 -- o.window("qemu", { workspace = "5" })
+
+-- require("hypr.envs")       -- personal env overrides (PATH, Tensaku, Chromium/Electron)
+require("hypr.windowrules")

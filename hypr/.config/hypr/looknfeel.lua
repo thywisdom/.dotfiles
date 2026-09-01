@@ -7,7 +7,7 @@
 --     gaps_in = 0,
 --     gaps_out = 0,
 --     border_size = 0,
-
+--
 --     -- Change to niri-like side-scrolling layout.
 --     layout = "scrolling",
 --   },
@@ -50,28 +50,27 @@
 -- })
 
 
-
 -- Custom
-hl.config({
-  general = {
-    gaps_in  = 0,
-    gaps_out = 0,
-  },
+-- hl.config({
+--   general = {
+--     gaps_in  = 0,
+--     gaps_out = 0,
+--   },
 
-  decoration = {
-    rounding = 0,
+--   decoration = {
+--     rounding = 0,
 
-    shadow = {
-      enabled = true,
-    },
+--     shadow = {
+--       enabled = true,
+--     },
 
-    blur = {
-      enabled = true,
-      special = true,
-      size = 8,
-      passes = 2,
-    },
+--     blur = {
+--       enabled = true,
+--       special = true,
+--       size = 8,
+--       passes = 2,
+--     },
 
-    dim_special = 0.35,
-  },
-})
+--     dim_special = 0.35,
+--   },
+-- })
