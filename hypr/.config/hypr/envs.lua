@@ -1,48 +1,43 @@
 -- User environment overrides.
--- Loaded after Omarchy's default/hypr/envs.lua (via require("default.hypr.omarchy")).
--- Only variables that differ from or extend Omarchy's defaults belong here.
+-- Loaded after Omarchy's default/hypr/envs.lua.
+-- Omarchy automatically handles:
+--   - PATH (~/.local/bin, mise shims, omarchy bin)
+--   - Wayland backends (GDK, Qt, Firefox, Electron/Chromium Ozone)
+--   - GTK/Qt themes and cursor sizes (24px)
+--   - Dynamic Nvidia detection (default/hypr/nvidia.lua)
+--   - System editor (omarchy-launch-editor)
 
--- local paths = require("default.hypr.paths")
+local paths = require("default.hypr.paths")
 
--- ---------------------------------------------------------------------------
--- PATH — add personal bin directory.
--- Omarchy's envs.lua prepends its own bin dir first. We insert ~/.local/bin
--- immediately after Omarchy's bin so personal scripts take precedence over
--- system paths but yield to Omarchy's own tooling.
--- ---------------------------------------------------------------------------
+-- ===========================================================================
+-- 1. ADDITIONAL TOOLCHAIN PATHS (Optional)
+-- ===========================================================================
+-- ~/.local/bin and ~/.local/share/mise/shims are ALREADY in PATH via Omarchy's UWSM env.
+-- Add non-mise toolchain directories here if you use them:
 
--- local personal_bin = paths.home .. "/.local/bin"
--- local omarchy_bin  = paths.omarchy_path .. "/bin"
+local cargo_bin = paths.home .. "/.cargo/bin"
+local current_path = os.getenv("PATH") or ""
 
--- -- Rebuild PATH: omarchy_bin first, then personal_bin, then system paths deduped.
--- local seen    = {}
--- local ordered = {}
+if not current_path:find(cargo_bin, 1, true) then
+  hl.env("PATH", current_path .. ":" .. cargo_bin)
+end
 
--- for _, dir in ipairs({ omarchy_bin, personal_bin }) do
---   if not seen[dir] then
---     seen[dir] = true
---     table.insert(ordered, dir)
---   end
--- end
+-- ===========================================================================
+-- 2. TOOLKIT & WINDOW TWEAKS (Optional)
+-- ===========================================================================
 
--- for entry in (os.getenv("PATH") or "/usr/local/bin:/usr/bin:/usr/sbin:/bin"):gmatch("[^:]+") do
---   if not seen[entry] then
---     seen[entry] = true
---     table.insert(ordered, entry)
---   end
--- end
+-- Prevent Qt applications from drawing duplicate client-side titlebars in tiling mode
+hl.env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
 
--- hl.env("PATH", table.concat(ordered, ":"))
-
--- ---------------------------------------------------------------------------
--- Chromium / Electron backend — intentional override of Omarchy's "wayland".
--- "auto" lets the apps detect the best backend; safer for mixed Wayland +
--- XWayland setups and avoids forced-wayland breakage on some apps.
--- ---------------------------------------------------------------------------
--- hl.env("OZONE_PLATFORM", "auto")
--- hl.env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
-
--- ---------------------------------------------------------------------------
--- Tensaku screenshot editor (wired by `tensaku --wire-omarchy`).
--- ---------------------------------------------------------------------------
+-- Custom screenshot annotation editor (if using tensaku or custom tool)
 -- hl.env("OMARCHY_SCREENSHOT_EDITOR", "/usr/bin/tensaku-edit")
+
+-- ===========================================================================
+-- 3. HARDWARE & COMPOSITOR REFERENCE (For documentation only)
+-- ===========================================================================
+-- Omarchy automatically configures Nvidia hardware via /usr/share/omarchy/default/hypr/nvidia.lua.
+-- Manual overrides are NOT needed unless troubleshooting specific GPU issues:
+--
+-- hl.env("LIBVA_DRIVER_NAME", "nvidia")
+-- hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+-- hl.env("NVD_BACKEND", "direct")

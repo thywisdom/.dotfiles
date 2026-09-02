@@ -1,146 +1,76 @@
-╭───────────────────────────────────────────────╮
-│                                               │
-│     Arch Linux System Cleanup  v2.0.0         │
-│                                               │
-│     Arch  ·  suman  ·  kernel 7.1.9-arch1-2   │
-│                                               │
-╰───────────────────────────────────────────────╯
+~ ❯ sudo ls /usr/share/omarchy/default/hypr/
+apps/                      envs.lua                   require_all.lua
+apps.lua                   helpers.lua                require_optional.lua
+autostart.lua              input.lua                  toggles/
+bindings/                  looknfeel.lua              toggles.lua
+bindings.lua               nvidia.lua                 windows.lua
+bootstrap.lua              omarchy.lua                workspace-layouts.lua
+disabled-input-device.lua  paths.lua                  
 
-Disk Usage
-  /         27G used / 203G total  (175G avail  14%)
+~ ❯  sudo ls /usr/share/omarchy/
+[sudo] password for suman: 
+applications  config   etc-overrides  icon.txt	logo.svg  migrations  themes
+bin	      default  icon.png       install	logo.txt  shell       version
 
-Scanning cleanup targets — no changes made...
+~ ✗ sudo ls /usr/share/omarchy/default/environment.d/
+10-omarchy-fcitx.conf
 
-╭──────────────┬───────────────────────────┬───────────────────────┬────────┬─────────╮
-│ Module       │ Target Path               │ Current Size          │ Risk   │ Mode    │
-├──────────────┼───────────────────────────┼───────────────────────┼────────┼─────────┤
-│ Coredumps    │ /var/lib/systemd/coredump │ 0 B                   │ Safe   │ Auto    │
-│ Pacman Cache │ /var/cache/pacman/pkg     │ 0 B                   │ ⚠ High │ Confirm │
-│ User Cache   │ ~/.cache                  │ 56.0 KiB              │ Medium │ Auto    │
-│ Trash        │ ~/.local/share/Trash      │ 0 B                   │ ⚠ High │ Confirm │
-│ /tmp         │ /tmp  (stale >1d)         │ 11.70 MiB             │ Safe   │ Auto    │
-│ /var/tmp     │ /var/tmp  (stale >7d)     │ 0 B                   │ Safe   │ Auto    │
-│ Log Archives │ /var/log (rotated)        │ 512.0 KiB             │ Safe   │ Auto    │
-│ Journal      │ journalctl vacuum         │ → 1M (aggressive)     │ Medium │ Auto    │
-│ Orphan Pkgs  │ pacman -Rns               │ 0 package(s)          │ Medium │ Auto    │
-│ Snapper      │ Btrfs snapshots           │ 0 removable / 1 total │ ⚠ High │ Confirm │
-╰──────────────┴───────────────────────────┴───────────────────────┴────────┴─────────╯
+~ ❯ sudo ls /usr/share/omarchy/default/hypr/
+apps/                      envs.lua                   require_all.lua
+apps.lua                   helpers.lua                require_optional.lua
+autostart.lua              input.lua                  toggles/
+bindings/                  looknfeel.lua              toggles.lua
+bindings.lua               nvidia.lua                 windows.lua
+bootstrap.lua              omarchy.lua                workspace-layouts.lua
+disabled-input-device.lua  paths.lua                  
 
-  Estimated freeable: 40.56 MiB
-  (Actual reclaimed depends on pacman cache contents, active file locks, journal retention)
+~ ❯ sudo cat /usr/share/omarchy/default/hypr/envs.lua 
+local paths = require("default.hypr.paths")
+local require_optional = require("default.hypr.require_optional")
 
+-- GUM environment variables for styling purposes.
+require_optional.module("omarchy.current.theme.gum_env")
 
-┌────────────────────────────────────────────────────────┐
-│  Elevated Privileges Required                          │
-│  Authenticating with sudo for system cleanup tasks...  │
-└────────────────────────────────────────────────────────┘
+-- Cursor size.
+hl.env("XCURSOR_SIZE", "24")
+hl.env("HYPRCURSOR_SIZE", "24")
 
+-- Force all apps to use Wayland.
+hl.env("GDK_BACKEND", "wayland,x11,*")
+hl.env("QT_QPA_PLATFORM", "wayland;xcb")
+hl.env("QT_QPA_PLATFORMTHEME", "gtk3")
+hl.env("MOZ_ENABLE_WAYLAND", "1")
+hl.env("ELECTRON_OZONE_PLATFORM_HINT", "wayland")
+hl.env("OZONE_PLATFORM", "wayland")
+hl.env("XDG_SESSION_TYPE", "wayland")
 
-╭─────────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                                             │
-│  Ready to proceed with system cleanup?                                                      │
-│                                                                                             │
-│    • Safe Stages   : Coredumps, User cache, /tmp, /var/tmp, Log archives, Journal, Orphans  │
-│    • Prompt Stages : Pacman cache (-Scc), Trash, Snapper snapshots                          │
-│                                                                                             │
-│  Navigation: Use [Left/Right] arrows or [y/n] keys, then press [Enter] to submit.           │
-│                                                                                             │
-╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+-- Allow better support for screen sharing (Google Meet, Discord, etc).
+hl.env("XDG_CURRENT_DESKTOP", "Hyprland")
+hl.env("XDG_SESSION_DESKTOP", "Hyprland")
 
+-- Use XCompose file.
+hl.env("XCOMPOSEFILE", paths.home .. "/.XCompose")
 
-── [1/10]  Coredumps
-INFO Path: /var/lib/systemd/coredump  ·  Before: 0 B
-INFO No coredump files — already clean
+-- hyprctl setenv doesn't reach keybind dispatcher env; use hl.env.
+hl.env("OMARCHY_PATH", paths.omarchy_path)
 
-── [2/10]  Pacman Package Cache
-INFO Path: /var/cache/pacman/pkg  ·  Before: 0 B
+local bin_dir = paths.omarchy_path .. "/bin"
+local kept = {}
+for entry in (os.getenv("PATH") or "/usr/local/bin:/usr/bin"):gmatch("[^:]+") do
+  if entry ~= bin_dir then table.insert(kept, entry) end
+end
+table.insert(kept, 1, bin_dir)
+hl.env("PATH", table.concat(kept, ":"))
 
-┌───────────────────────────────────────────────────────────────────────┐
-│                                                                       │
-│  ⚠  Full Pacman Cache Removal                                         │
-│                                                                       │
-│    pacman -Scc --noconfirm removes ALL cached packages (0 B).         │
-│    Rollbacks and reinstalls will require fresh downloads after this.  │
-│    Residual download-* directories will also be cleared.              │
-│                                                                       │
-└───────────────────────────────────────────────────────────────────────┘
+-- Hardware-specific environment.
+require("default.hypr.nvidia")
 
-INFO After: 0 B  ·  Reclaimed: 0 B
+hl.config({
+  xwayland = {
+    force_zero_scaling = true,
+  },
 
-── [3/10]  User Cache (~/.cache)
-INFO Path: ~/.cache  ·  Before: 56.0 KiB
-DEBUG Apps safely regenerate caches on next launch
-INFO After: 0 B  ·  Reclaimed: 56.0 KiB
-
-── [4/10]  User Trash
-
-Contents (first 10 items):
-
-┌────────────────────────────────────────────────────────────────┐
-│                                                                │
-│  ⚠  Permanent Deletion — Cannot Be Undone                      │
-│                                                                │
-│    2 item(s)  ·  0 B                                           │
-│    Files will be permanently deleted and cannot be recovered.  │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-
-INFO After: 0 B  ·  Reclaimed: 0 B
-
-── [5/10]  /tmp Cleanup
-INFO Path: /tmp  ·  Before: 11.70 MiB  ·  Pruning files older than 1 day
-DEBUG Preserved: sockets, X11/Wayland sockets, systemd-private dirs, active locks
-INFO Removed 0 stale item(s)  ·  Preserved 0 active item(s)  ·  Reclaimed: 0 B
-
-── [6/10]  /var/tmp Cleanup
-INFO Path: /var/tmp  ·  Before: 0 B  ·  Pruning files older than 7 days
-DEBUG /var/tmp persists across reboots by design; systemd-private dirs preserved
-INFO Removed 0  ·  Preserved 0  ·  Reclaimed: 0 B
-
-── [7/10]  Log Archives (/var/log rotated)
-INFO /var/log total before: 40.50 MiB
-DEBUG Preserved: /var/log/journal, pacman.log, wtmp, btmp, lastlog, audit/
-INFO Found 0 rotated archive(s)
-INFO Removed 0 archive(s)  ·  Reclaimed: 0 B
-
-── [8/10]  systemd Journal Vacuum
-INFO Before: 40.00 MiB  ·  Policy: aggressive --vacuum-size=1M
-^[[?2026;2$y^[[?2027;2$yINFO After: 40.00 MiB  ·  Reclaimed: 0 B
-
-── [9/10]  Orphan Package Removal
-INFO No orphan packages found
-
-── [10/10]  Snapper Snapshot Cleanup
-INFO Config: root
-
-Snapshots — root:
-
-  0 │ single │       │      │ root │         │ current     │  [PROTECTED — current system]
-
-INFO No removable snapshots (only snapshot 0 is present)
-
-╭────────────────────────╮
-│     Cleanup Complete   │
-╰────────────────────────╯
-
-╭──────────────┬───────────┬───────────┬───────────┬───────────╮
-│ Module       │ Before    │ After     │ Reclaimed │ Status    │
-├──────────────┼───────────┼───────────┼───────────┼───────────┤
-│ Coredumps    │ 0 B       │ 0 B       │ 0 B       │ — SKIPPED │
-│ Pacman Cache │ 0 B       │ 0 B       │ 0 B       │ ✓ SUCCESS │
-│ User Cache   │ 56.0 KiB  │ 0 B       │ 56.0 KiB  │ ✓ SUCCESS │
-│ Trash        │ 0 B       │ 0 B       │ 0 B       │ ✓ SUCCESS │
-│ /tmp         │ 11.70 MiB │ 11.70 MiB │ 0 B       │ ✓ SUCCESS │
-│ /var/tmp     │ 0 B       │ 0 B       │ 0 B       │ ✓ SUCCESS │
-│ Log Archives │ 40.50 MiB │ 40.50 MiB │ 0 B       │ ✓ SUCCESS │
-│ Journal      │ 40.00 MiB │ 40.00 MiB │ 0 B       │ ✓ SUCCESS │
-│ Orphan Pkgs  │ 0 B       │ 0 B       │ 0 B       │ — SKIPPED │
-│ Snapper      │ 0 B       │ 0 B       │ 0 B       │ — SKIPPED │
-│ TOTAL        │ 92.26 MiB │ 92.20 MiB │ 56.0 KiB  │           │
-╰──────────────┴───────────┴───────────┴───────────┴───────────╯
-
-  Total reclaimed: 0 B
-  ✓ 0 success  ·  ~ 0 partial  ·  — 0 skipped  ·  ✗ 0 failed
-  Press any key to close...
-
-~ ❯ [?2026;2$y2027;2$y
+  ecosystem = {
+    no_update_news = true,
+  },
+})

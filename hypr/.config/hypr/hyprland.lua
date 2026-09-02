@@ -28,5 +28,5 @@ require("default.hypr.toggles")
 -- Add any other personal Hyprland configuration below.
 -- o.window("qemu", { workspace = "5" })
 
--- require("hypr.envs")       -- personal env overrides (PATH, Tensaku, Chromium/Electron)
+require("hypr.envs")       -- personal env overrides (PATH, Tensaku, Chromium/Electron)
 require("hypr.windowrules")
